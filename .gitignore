@@ -45,3 +45,6 @@ sandbox/runs/
 # Pgvector dumps
 *.sql.gz
 pgdata/
+
+# Claude Code 本地个人覆盖（项目级 settings.json 仍入仓）
+.claude/settings.local.json
