@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Node / Tauri
+node_modules/
+dist/
+.vite/
+.turbo/
+src-tauri/target/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# Runtime artifacts
+*.log
+*.sqlite3
+*.db
+data/local/
+sandbox/runs/
+
+# Pgvector dumps
+*.sql.gz
+pgdata/
