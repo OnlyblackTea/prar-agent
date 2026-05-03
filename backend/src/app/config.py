@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    database_url: str = "postgresql+asyncpg://prar:prar@localhost:15432/prar_agent"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

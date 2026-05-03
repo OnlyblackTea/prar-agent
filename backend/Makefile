@@ -1,4 +1,4 @@
-.PHONY: sync dev test lint fmt typecheck clean
+.PHONY: sync dev test lint fmt typecheck clean db-up db-down db-shell db-init db-makemigration
 
 sync:
 	uv sync --all-groups
@@ -20,3 +20,18 @@ typecheck:
 
 clean:
 	rm -rf .venv .pytest_cache .mypy_cache .ruff_cache
+
+db-up:
+	docker compose -f ../docker-compose.yml up -d postgres
+
+db-down:
+	docker compose -f ../docker-compose.yml down
+
+db-shell:
+	docker exec -it prar-postgres psql -U prar -d prar_agent
+
+db-init:
+	uv run alembic upgrade head
+
+db-makemigration:
+	uv run alembic revision --autogenerate -m "$(MSG)"

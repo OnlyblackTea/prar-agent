@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: prar-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: prar
+      POSTGRES_PASSWORD: prar
+      POSTGRES_DB: prar_agent
+    ports:
+      - "15432:5432"
+    volumes:
+      - prar_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "prar", "-d", "prar_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  prar_pgdata:
