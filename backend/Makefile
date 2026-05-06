@@ -1,4 +1,4 @@
-.PHONY: sync dev test lint fmt typecheck clean db-up db-down db-shell db-init db-makemigration
+.PHONY: sync dev test lint fmt typecheck clean db-up db-down db-shell db-init db-makemigration coverage-state-machine
 
 sync:
 	uv sync --all-groups
@@ -35,3 +35,6 @@ db-init:
 
 db-makemigration:
 	uv run alembic revision --autogenerate -m "$(MSG)"
+
+coverage-state-machine:
+	uv run pytest --cov=app.core.state_machine --cov-branch --cov-report=term-missing --cov-fail-under=100 tests/test_state_machine.py

@@ -46,5 +46,11 @@ sandbox/runs/
 *.sql.gz
 pgdata/
 
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # Claude Code 本地个人覆盖（项目级 settings.json 仍入仓）
 .claude/settings.local.json
