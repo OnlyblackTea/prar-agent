@@ -21,7 +21,8 @@
 | 01 | 后端项目骨架（FastAPI + uv + pydantic v2 + 配置加载） | `backend/` 可启动，`/health` 通过 |
 | 02 | PostgreSQL + pgvector 容器化 + `db/models.py` 初版（session/plan/memory/comment 表） | `docker compose up` + alembic up to head |
 | 03 | 状态机 `core/state_machine.py` + 单元测试 | 6 phase + 转移合法性表 + 100% 覆盖 |
-| 04 | LiteLLM 路由 `llm/router.py` + 多模型 schema 归一化层 | Claude / GPT 两家结构化输出走通 |
+| 04 | LLM 路由（Instructor + 直连 SDK）+ schema 归一化 | Claude / GPT 结构化输出走通；prefix 路由 + default_model_id（过渡实现） |
+| 04.1 | **Model Adapter 体系**（router 改造接 `ModelAdapter` 对象 + `model_adapters` DB 表 + CRUD API + 前端引导式 wizard + `sessions.model_id` → `sessions.adapter_id` fix-up migration） | 用户能在前端引导式新建 adapter，新增不需要改代码 |
 | **05** | **Logging / 链路追踪基建**（structlog + JSONL + `request_id` 串全链路） | LLM call / tool exec / state transition 全可追溯 |
 | **06** | **shared/schema.json 自动生成管道**（pydantic `model_json_schema()` → 前端 `json-schema-to-ts`） | `make gen-schema` 一键同步前后端契约 |
 | 07 | Plan 引擎 `core/plan_engine.py`（Planner prompt + **Critic 内嵌自审** + **LTM 接口存根 `ltm_recall=[]`**） | 给 init request 生成自审过的结构化 Plan JSON |

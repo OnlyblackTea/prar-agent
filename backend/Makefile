@@ -1,4 +1,4 @@
-.PHONY: sync dev test lint fmt typecheck clean db-up db-down db-shell db-init db-makemigration coverage-state-machine
+.PHONY: sync dev test lint fmt typecheck clean db-up db-down db-shell db-init db-makemigration coverage-state-machine smoke-llm
 
 sync:
 	uv sync --all-groups
@@ -7,7 +7,7 @@ dev:
 	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 test:
-	uv run pytest -v
+	uv run pytest -v -m "not smoke"
 
 lint:
 	uv run ruff check src tests
@@ -38,3 +38,9 @@ db-makemigration:
 
 coverage-state-machine:
 	uv run pytest --cov=app.core.state_machine --cov-branch --cov-report=term-missing --cov-fail-under=100 tests/test_state_machine.py
+
+smoke-llm:
+	@if [ -z "$$ANTHROPIC_API_KEY$$OPENAI_API_KEY" ]; then \
+		echo "ERROR: 至少设一个 ANTHROPIC_API_KEY 或 OPENAI_API_KEY"; exit 1; \
+	fi
+	uv run pytest -v -m smoke tests/test_router.py

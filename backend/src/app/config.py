@@ -21,6 +21,12 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://prar:prar@localhost:15432/prar_agent"
 
+    # LLM 默认参数（Task 4.1 起 model adapter 体系会替换 default_model_id）
+    default_model_id: str = "claude-sonnet-4-6"
+    llm_default_temperature: float = 0.7
+    llm_default_max_tokens: int = 4096
+    llm_default_max_retries: int = 2
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
