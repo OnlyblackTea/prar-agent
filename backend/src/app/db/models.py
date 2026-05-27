@@ -15,11 +15,56 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+
+
+class ModelAdapter(Base):
+    """用户配置的 LLM 接入点。一个 adapter = (provider, model, credentials, params)。"""
+
+    __tablename__ = "model_adapters"
+
+    id: Mapped[UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    credentials_env: Mapped[dict[str, str]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    params: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("name", name="name_unique"),
+        Index(
+            "model_adapters_default_unique",
+            "is_default",
+            unique=True,
+            postgresql_where=text("is_default = true"),
+        ),
+    )
 
 
 class Session(Base):
@@ -35,7 +80,9 @@ class Session(Base):
     current_plan_version: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
     )
-    model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    adapter_id: Mapped[UUID] = mapped_column(
+        ForeignKey("model_adapters.id", ondelete="RESTRICT"), nullable=False
+    )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
