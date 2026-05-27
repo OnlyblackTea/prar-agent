@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "HealthResponse": {
+      "properties": {
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "service": {
+          "title": "Service",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        },
+        "environment": {
+          "title": "Environment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "service",
+        "version",
+        "environment"
+      ],
+      "title": "HealthResponse",
+      "type": "object"
+    },
+    "ModelAdapterCreate": {
+      "properties": {
+        "name": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "credentials_env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Credentials Env",
+          "type": "object"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "provider",
+        "model"
+      ],
+      "title": "ModelAdapterCreate",
+      "type": "object"
+    },
+    "ModelAdapterUpdate": {
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "credentials_env": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credentials Env"
+        },
+        "params": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Params"
+        },
+        "is_active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Is Active"
+        }
+      },
+      "title": "ModelAdapterUpdate",
+      "type": "object"
+    },
+    "ModelAdapterResponse": {
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "credentials_env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Credentials Env",
+          "type": "object"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "is_default": {
+          "title": "Is Default",
+          "type": "boolean"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "provider",
+        "model",
+        "credentials_env",
+        "params",
+        "is_default",
+        "is_active"
+      ],
+      "title": "ModelAdapterResponse",
+      "type": "object"
+    }
+  }
+}

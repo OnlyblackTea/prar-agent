@@ -1,4 +1,4 @@
-.PHONY: sync dev test lint fmt typecheck clean db-up db-down db-shell db-init db-makemigration coverage-state-machine smoke-llm
+.PHONY: sync dev test lint fmt typecheck clean db-up db-down db-shell db-init db-makemigration coverage-state-machine smoke-llm gen-schema check-schema
 
 sync:
 	uv sync --all-groups
@@ -44,3 +44,11 @@ smoke-llm:
 		echo "ERROR: 至少设一个 ANTHROPIC_API_KEY 或 OPENAI_API_KEY"; exit 1; \
 	fi
 	uv run pytest -v -m smoke tests/test_router.py
+
+gen-schema:
+	uv run python scripts/gen_schema.py
+
+check-schema:
+	uv run python scripts/gen_schema.py
+	git diff --exit-code ../shared/schema.json || \
+		(echo "ERROR: shared/schema.json out of sync — run 'make gen-schema'" && exit 1)
