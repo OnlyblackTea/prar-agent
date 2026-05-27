@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     environment: str = "development"
     log_level: str = "INFO"
+    log_format: str = "console"
 
     host: str = "0.0.0.0"
     port: int = 8000

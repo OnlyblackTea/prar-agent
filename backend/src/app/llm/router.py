@@ -9,6 +9,7 @@
         └── StructuredOutputError  Instructor 重试耗尽 / schema 不匹配
 """
 
+import time
 from collections.abc import Hashable
 
 import instructor
@@ -16,8 +17,11 @@ from instructor.core import InstructorRetryException
 from pydantic import BaseModel, ConfigDict
 
 from app.config import Settings
+from app.core.logging import get_logger
 from app.llm.providers.base import PROVIDER_REGISTRY
 from app.llm.types import ResolvedAdapter
+
+_log = get_logger("llm")
 
 # ===== 响应模型 =====
 
@@ -154,6 +158,7 @@ class LLMRouter:
         mt = max_tokens if max_tokens is not None else s.llm_default_max_tokens
 
         client = self._client_for(adapter)
+        start = time.perf_counter()
 
         try:
             parsed, raw = await client.chat.completions.create_with_completion(
@@ -168,20 +173,55 @@ class LLMRouter:
                 max_tokens=mt,
             )
         except InstructorRetryException as e:
+            duration_ms = round((time.perf_counter() - start) * 1000, 1)
+            _log.error(
+                "llm_call_failed",
+                provider=adapter.provider,
+                model=adapter.model,
+                duration_ms=duration_ms,
+                error=f"Schema validation failed after {retries} retries",
+            )
             raise StructuredOutputError(
                 f"Schema validation failed after {retries} retries: {e}",
                 model_id=adapter.model,
                 raw_text=str(getattr(e, "last_completion", "") or e),
             ) from e
         except LLMError:
+            duration_ms = round((time.perf_counter() - start) * 1000, 1)
+            _log.error(
+                "llm_call_failed",
+                provider=adapter.provider,
+                model=adapter.model,
+                duration_ms=duration_ms,
+                error="LLMError",
+            )
             raise
         except Exception as e:
+            duration_ms = round((time.perf_counter() - start) * 1000, 1)
+            _log.error(
+                "llm_call_failed",
+                provider=adapter.provider,
+                model=adapter.model,
+                duration_ms=duration_ms,
+                error=str(e),
+            )
             raise LLMTransportError(str(e), model_id=adapter.model, cause=e) from e
+
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        usage = _extract_usage(raw)
+        _log.info(
+            "llm_call",
+            provider=adapter.provider,
+            model=adapter.model,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            duration_ms=duration_ms,
+        )
 
         return StructuredResponse[T](
             parsed=parsed,
             raw_text=parsed.model_dump_json(),
             model_id=adapter.model,
-            usage=_extract_usage(raw),
+            usage=usage,
             finish_reason=_extract_finish_reason(raw),
         )

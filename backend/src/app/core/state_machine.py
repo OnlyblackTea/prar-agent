@@ -1,5 +1,9 @@
 from enum import StrEnum
 
+from app.core.logging import get_logger
+
+_log = get_logger("state_machine")
+
 
 class Phase(StrEnum):
     """PRAR 工作流的 6 个 phase。值与 DB Session.phase CheckConstraint 必须一致。"""
@@ -44,10 +48,22 @@ def can_transition(current: Phase, target: Phase) -> bool:
     return target in TRANSITIONS[current]
 
 
-def transition(current: Phase, target: Phase) -> Phase:
+def transition(current: Phase, target: Phase, *, session_id: str | None = None) -> Phase:
     """合法则返回 target，否则 raise InvalidTransitionError。"""
     if not can_transition(current, target):
+        _log.warning(
+            "transition_rejected",
+            from_phase=current.value,
+            to_phase=target.value,
+            session_id=session_id,
+        )
         raise InvalidTransitionError(current, target)
+    _log.info(
+        "transition",
+        from_phase=current.value,
+        to_phase=target.value,
+        session_id=session_id,
+    )
     return target
 
 
