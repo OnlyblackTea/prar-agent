@@ -1,6 +1,6 @@
 # 07. Plan 引擎
 
-> **状态**：DRAFT，待 APPROVED
+> **状态**：APPROVED，已实施（commit `6a6f3ca`）
 > **依赖**：Task 04.1b（router `complete_structured` + `ResolvedAdapter`）、Task 05（logging）
 > **被依赖**：Task 08（WebSocket 流式推送 plan 节点）、Task 10（前端渲染 plan document）
 > **commit 范围**：单个 commit

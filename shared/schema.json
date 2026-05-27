@@ -196,6 +196,323 @@
       ],
       "title": "ModelAdapterResponse",
       "type": "object"
+    },
+    "DecisionNode": {
+      "properties": {
+        "type": {
+          "const": "decision",
+          "default": "decision",
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "description": "框架后处理分配，LLM 必须留空",
+          "title": "Id",
+          "type": "string"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "kind": {
+          "default": "single_choice",
+          "enum": [
+            "single_choice",
+            "multi_choice"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 6,
+          "minItems": 2,
+          "title": "Options",
+          "type": "array"
+        },
+        "answer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Answer"
+        },
+        "blocking": {
+          "default": true,
+          "title": "Blocking",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "question",
+        "options"
+      ],
+      "title": "DecisionNode",
+      "type": "object"
+    },
+    "GlossaryNode": {
+      "properties": {
+        "type": {
+          "const": "glossary",
+          "default": "glossary",
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "description": "框架后处理分配，LLM 必须留空",
+          "title": "Id",
+          "type": "string"
+        },
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "definition": {
+          "title": "Definition",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term",
+        "definition"
+      ],
+      "title": "GlossaryNode",
+      "type": "object"
+    },
+    "HeadingNode": {
+      "properties": {
+        "type": {
+          "const": "heading",
+          "default": "heading",
+          "title": "Type",
+          "type": "string"
+        },
+        "level": {
+          "maximum": 3,
+          "minimum": 1,
+          "title": "Level",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "text"
+      ],
+      "title": "HeadingNode",
+      "type": "object"
+    },
+    "ParagraphNode": {
+      "properties": {
+        "type": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "ParagraphNode",
+      "type": "object"
+    },
+    "StepNode": {
+      "properties": {
+        "type": {
+          "const": "step",
+          "default": "step",
+          "title": "Type",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "description": "框架后处理分配，LLM 必须留空",
+          "title": "Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_args": {
+          "additionalProperties": true,
+          "title": "Tool Args",
+          "type": "object"
+        },
+        "rerunnable": {
+          "default": true,
+          "title": "Rerunnable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "title",
+        "description",
+        "tool"
+      ],
+      "title": "StepNode",
+      "type": "object"
+    },
+    "PlanDocument": {
+      "description": "Planner LLM 输出的结构化计划。",
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "decision": "#/$defs/DecisionNode",
+                "glossary": "#/$defs/GlossaryNode",
+                "heading": "#/$defs/HeadingNode",
+                "paragraph": "#/$defs/ParagraphNode",
+                "step": "#/$defs/StepNode"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/HeadingNode"
+              },
+              {
+                "$ref": "#/$defs/ParagraphNode"
+              },
+              {
+                "$ref": "#/$defs/DecisionNode"
+              },
+              {
+                "$ref": "#/$defs/GlossaryNode"
+              },
+              {
+                "$ref": "#/$defs/StepNode"
+              }
+            ]
+          },
+          "title": "Nodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "title",
+        "summary",
+        "nodes"
+      ],
+      "title": "PlanDocument",
+      "type": "object"
+    },
+    "CriticAction": {
+      "description": "Critic 对单个节点的修正指令。",
+      "properties": {
+        "node_index": {
+          "description": "目标节点在 nodes 列表中的下标",
+          "minimum": 0,
+          "title": "Node Index",
+          "type": "integer"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "replacement": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "decision": "#/$defs/DecisionNode",
+                  "glossary": "#/$defs/GlossaryNode",
+                  "heading": "#/$defs/HeadingNode",
+                  "paragraph": "#/$defs/ParagraphNode",
+                  "step": "#/$defs/StepNode"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/HeadingNode"
+                },
+                {
+                  "$ref": "#/$defs/ParagraphNode"
+                },
+                {
+                  "$ref": "#/$defs/DecisionNode"
+                },
+                {
+                  "$ref": "#/$defs/GlossaryNode"
+                },
+                {
+                  "$ref": "#/$defs/StepNode"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replacement"
+        }
+      },
+      "required": [
+        "node_index",
+        "action",
+        "reason"
+      ],
+      "title": "CriticAction",
+      "type": "object"
+    },
+    "CriticResult": {
+      "description": "Critic 输出：一组修正 + 全局评语。",
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/CriticAction"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "overall_comment": {
+          "default": "",
+          "title": "Overall Comment",
+          "type": "string"
+        }
+      },
+      "title": "CriticResult",
+      "type": "object"
     }
   }
 }
