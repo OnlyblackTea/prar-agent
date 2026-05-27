@@ -1,27 +1,23 @@
-"""LLM 路由器：Instructor + 直连 anthropic/openai SDK。
+"""LLM 路由器：Provider Registry + Instructor 结构化输出。
 
 公开 API：
     LLMRouter.complete_structured(...) -> StructuredResponse[T]
 
 异常层级：
     LLMError
-        ├── LLMTransportError      网络/认证/限流/不识别 model_id
+        ├── LLMTransportError      网络/认证/限流/unknown provider
         └── StructuredOutputError  Instructor 重试耗尽 / schema 不匹配
-
-注：default_model_id 与 prefix 路由是过渡实现，Task 4.1 model adapter 体系会替换。
 """
 
+from collections.abc import Hashable
+
 import instructor
-from anthropic import AsyncAnthropic
 from instructor.core import InstructorRetryException
-from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict
 
 from app.config import Settings
-
-ANTHROPIC_PREFIXES = ("claude-", "anthropic/")
-OPENAI_PREFIXES = ("gpt-", "o1-", "o3-", "openai/")
-
+from app.llm.providers.base import PROVIDER_REGISTRY
+from app.llm.types import ResolvedAdapter
 
 # ===== 响应模型 =====
 
@@ -50,7 +46,7 @@ class LLMError(Exception):
 
 
 class LLMTransportError(LLMError):
-    """网络 / 认证 / 限流 / 不识别 model_id 等传输层异常。"""
+    """网络 / 认证 / 限流 / unknown provider 等传输层异常。"""
 
     def __init__(
         self,
@@ -79,19 +75,17 @@ class StructuredOutputError(LLMError):
         self.raw_text = raw_text
 
 
-# ===== 归一化辅助（anthropic Message vs openai ChatCompletion 字段差异）=====
+# ===== 归一化辅助 =====
 
 
 def _extract_usage(raw: object) -> TokenUsage:
     usage = getattr(raw, "usage", None)
     if usage is None:
         return TokenUsage()
-    # Anthropic: input_tokens, output_tokens
     if hasattr(usage, "input_tokens"):
         i = int(getattr(usage, "input_tokens", 0) or 0)
         o = int(getattr(usage, "output_tokens", 0) or 0)
         return TokenUsage(input_tokens=i, output_tokens=o, total_tokens=i + o)
-    # OpenAI: prompt_tokens, completion_tokens, total_tokens
     if hasattr(usage, "prompt_tokens"):
         return TokenUsage(
             input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
@@ -102,9 +96,9 @@ def _extract_usage(raw: object) -> TokenUsage:
 
 
 def _extract_finish_reason(raw: object) -> str:
-    if hasattr(raw, "stop_reason"):  # Anthropic
+    if hasattr(raw, "stop_reason"):
         return str(getattr(raw, "stop_reason", None) or "unknown")
-    choices = getattr(raw, "choices", None)  # OpenAI
+    choices = getattr(raw, "choices", None)
     if choices:
         return str(getattr(choices[0], "finish_reason", None) or "unknown")
     return "unknown"
@@ -114,38 +108,39 @@ def _extract_finish_reason(raw: object) -> str:
 
 
 class LLMRouter:
-    """Instructor + 直连 SDK 路由器。
+    """Provider Registry 驱动的 Instructor 路由器。
 
     职责：
-      1. 按 model_id 前缀路由到 anthropic 或 openai 的 Instructor 客户端
-      2. 委托 Instructor 处理结构化输出（自动 schema 校验 + 失败重试）
-      3. 归一化 token usage / finish_reason
-      4. 异常归一化（Instructor / SDK 异常 → 三层 LLMError）
+      1. 按 adapter.provider 从 PROVIDER_REGISTRY 取 spec，构建 Instructor 客户端
+      2. 客户端按 (provider, credentials, params) 三元组缓存
+      3. 委托 Instructor 处理结构化输出
+      4. 归一化 token usage / finish_reason / 异常
     """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._anthropic: instructor.AsyncInstructor | None = None
-        self._openai: instructor.AsyncInstructor | None = None
+        self._client_cache: dict[Hashable, instructor.AsyncInstructor] = {}
 
-    def _client_for(self, model_id: str) -> instructor.AsyncInstructor:
-        if model_id.startswith(ANTHROPIC_PREFIXES):
-            if self._anthropic is None:
-                self._anthropic = instructor.from_anthropic(AsyncAnthropic())
-            return self._anthropic
-        if model_id.startswith(OPENAI_PREFIXES):
-            if self._openai is None:
-                self._openai = instructor.from_openai(AsyncOpenAI())
-            return self._openai
-        raise LLMTransportError(
-            f"Unsupported model_id prefix: {model_id}",
-            model_id=model_id,
+    def _client_for(self, adapter: ResolvedAdapter) -> instructor.AsyncInstructor:
+        spec = PROVIDER_REGISTRY.get(adapter.provider)
+        if spec is None:
+            raise LLMTransportError(
+                f"Unknown provider: {adapter.provider!r}",
+                model_id=adapter.model,
+            )
+        cache_key = (
+            adapter.provider,
+            frozenset(adapter.credentials.items()),
+            frozenset(adapter.params.items()),
         )
+        if cache_key not in self._client_cache:
+            self._client_cache[cache_key] = spec.build_client(adapter)
+        return self._client_cache[cache_key]
 
     async def complete_structured[T: BaseModel](
         self,
         *,
-        model_id: str | None = None,
+        adapter: ResolvedAdapter,
         system: str,
         user: str,
         schema: type[T],
@@ -153,21 +148,16 @@ class LLMRouter:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> StructuredResponse[T]:
-        """结构化补全，返回经 pydantic 校验的实例。
-
-        参数为 None 时回退到 Settings 默认值。
-        """
         s = self._settings
-        mid = model_id or s.default_model_id
         retries = max_retries if max_retries is not None else s.llm_default_max_retries
         temp = temperature if temperature is not None else s.llm_default_temperature
         mt = max_tokens if max_tokens is not None else s.llm_default_max_tokens
 
-        client = self._client_for(mid)
+        client = self._client_for(adapter)
 
         try:
             parsed, raw = await client.chat.completions.create_with_completion(
-                model=mid,
+                model=adapter.model,
                 response_model=schema,
                 max_retries=retries,
                 messages=[
@@ -180,18 +170,18 @@ class LLMRouter:
         except InstructorRetryException as e:
             raise StructuredOutputError(
                 f"Schema validation failed after {retries} retries: {e}",
-                model_id=mid,
+                model_id=adapter.model,
                 raw_text=str(getattr(e, "last_completion", "") or e),
             ) from e
         except LLMError:
             raise
         except Exception as e:
-            raise LLMTransportError(str(e), model_id=mid, cause=e) from e
+            raise LLMTransportError(str(e), model_id=adapter.model, cause=e) from e
 
         return StructuredResponse[T](
             parsed=parsed,
             raw_text=parsed.model_dump_json(),
-            model_id=mid,
+            model_id=adapter.model,
             usage=_extract_usage(raw),
             finish_reason=_extract_finish_reason(raw),
         )

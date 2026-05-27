@@ -1,21 +1,24 @@
-"""Task 04 LLMRouter 单元测试。
+"""LLMRouter 单元测试（4.1b 重写：ResolvedAdapter + Provider Registry）。
 
-策略：mock `instructor.AsyncInstructor` 客户端（绕过 lazy-init），不真调任何 API。
+策略：mock `instructor.AsyncInstructor` 客户端，不真调任何 API。
 """
 
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 from instructor.core import InstructorRetryException
 from pydantic import BaseModel
 
 from app.config import Settings
+from app.llm.providers.base import PROVIDER_REGISTRY, FieldDef, ProviderSpec
 from app.llm.router import (
     LLMRouter,
     LLMTransportError,
     StructuredOutputError,
     StructuredResponse,
 )
+from app.llm.types import ResolvedAdapter
 
 # ===== Test schema =====
 
@@ -25,7 +28,7 @@ class FooSchema(BaseModel):
     value: int = 0
 
 
-# ===== Mock helpers（最小字段表面，模拟两家 SDK 的响应对象）=====
+# ===== Mock SDK 响应对象 =====
 
 
 class _AnthropicUsage:
@@ -71,13 +74,31 @@ class _OpenAICompletion:
         self.choices = [_OpenAIChoice(finish_reason=finish_reason)]
 
 
+# ===== Helper: 构建 ResolvedAdapter =====
+
+
+def _adapter(
+    provider: str = "anthropic",
+    model: str = "claude-sonnet-4-6",
+    credentials: dict[str, str] | None = None,
+    params: dict[str, str] | None = None,
+) -> ResolvedAdapter:
+    return ResolvedAdapter(
+        id=uuid4(),
+        name="test-adapter",
+        provider=provider,
+        model=model,
+        credentials=credentials or {"api_key": "sk-test"},
+        params=params or {},
+    )
+
+
 # ===== Fixtures =====
 
 
 @pytest.fixture
 def settings() -> Settings:
-    """显式注入 default_model_id 为 claude- 前缀，T5 测试默认 fallback 时可控。"""
-    return Settings(default_model_id="claude-sonnet-4-6")
+    return Settings()
 
 
 @pytest.fixture
@@ -85,291 +106,178 @@ def router(settings: Settings) -> LLMRouter:
     return LLMRouter(settings)
 
 
-@pytest.fixture
-def mock_anthropic(router: LLMRouter) -> MagicMock:
+def _inject_mock_client(router: LLMRouter, adapter: ResolvedAdapter) -> MagicMock:
+    """向 router 缓存中注入 mock 客户端，避免真实 SDK 初始化。"""
     mock = MagicMock()
     mock.chat.completions.create_with_completion = AsyncMock()
-    router._anthropic = mock
+    cache_key = (
+        adapter.provider,
+        frozenset(adapter.credentials.items()),
+        frozenset(adapter.params.items()),
+    )
+    router._client_cache[cache_key] = mock
     return mock
 
 
-@pytest.fixture
-def mock_openai(router: LLMRouter) -> MagicMock:
-    mock = MagicMock()
-    mock.chat.completions.create_with_completion = AsyncMock()
-    router._openai = mock
-    return mock
+# ===== T1-T2: 路由到正确 provider =====
 
 
-# ===== T1-T3: 路由前缀分流 =====
-
-
-async def test_routes_claude_to_anthropic_client(
-    router: LLMRouter, mock_anthropic: MagicMock
-) -> None:
+async def test_routes_anthropic_adapter(router: LLMRouter) -> None:
+    adapter = _adapter(provider="anthropic")
+    mock = _inject_mock_client(router, adapter)
     foo = FooSchema(name="hi")
-    mock_anthropic.chat.completions.create_with_completion.return_value = (
-        foo,
-        _AnthropicMessage(),
-    )
+    mock.chat.completions.create_with_completion.return_value = (foo, _AnthropicMessage())
 
     result = await router.complete_structured(
-        model_id="claude-sonnet-4-6",
-        system="sys",
-        user="usr",
-        schema=FooSchema,
+        adapter=adapter, system="sys", user="usr", schema=FooSchema
     )
-
     assert result.parsed.name == "hi"
-    mock_anthropic.chat.completions.create_with_completion.assert_called_once()
-    assert router._openai is None
+    mock.chat.completions.create_with_completion.assert_called_once()
 
 
-async def test_routes_gpt_to_openai_client(
-    router: LLMRouter, mock_openai: MagicMock
-) -> None:
+async def test_routes_openai_adapter(router: LLMRouter) -> None:
+    adapter = _adapter(provider="openai", model="gpt-5")
+    mock = _inject_mock_client(router, adapter)
     foo = FooSchema(name="hi")
-    mock_openai.chat.completions.create_with_completion.return_value = (
-        foo,
-        _OpenAICompletion(),
-    )
+    mock.chat.completions.create_with_completion.return_value = (foo, _OpenAICompletion())
 
     result = await router.complete_structured(
-        model_id="gpt-5",
-        system="sys",
-        user="usr",
-        schema=FooSchema,
+        adapter=adapter, system="sys", user="usr", schema=FooSchema
     )
-
     assert result.parsed.name == "hi"
-    mock_openai.chat.completions.create_with_completion.assert_called_once()
-    assert router._anthropic is None
+    mock.chat.completions.create_with_completion.assert_called_once()
 
 
-@pytest.mark.parametrize("model_id", ["o1-mini", "o3-large", "openai/gpt-5"])
-async def test_routes_o1_o3_openai_prefix_to_openai(
-    router: LLMRouter, mock_openai: MagicMock, model_id: str
-) -> None:
-    foo = FooSchema(name="x")
-    mock_openai.chat.completions.create_with_completion.return_value = (
-        foo,
-        _OpenAICompletion(),
-    )
-
-    await router.complete_structured(
-        model_id=model_id, system="s", user="u", schema=FooSchema
-    )
-    mock_openai.chat.completions.create_with_completion.assert_called_once()
+# ===== T3: structured response =====
 
 
-# ===== T4: unknown model =====
-
-
-async def test_unknown_model_id_raises_transport_error(
-    router: LLMRouter,
-) -> None:
-    with pytest.raises(LLMTransportError) as exc_info:
-        await router.complete_structured(
-            model_id="qwen-turbo",
-            system="s",
-            user="u",
-            schema=FooSchema,
-        )
-    assert exc_info.value.model_id == "qwen-turbo"
-    assert "Unsupported" in str(exc_info.value)
-
-
-# ===== T5: default model fallback =====
-
-
-async def test_uses_default_model_when_id_none(
-    router: LLMRouter, settings: Settings, mock_anthropic: MagicMock
-) -> None:
-    foo = FooSchema(name="x")
-    mock_anthropic.chat.completions.create_with_completion.return_value = (
-        foo,
-        _AnthropicMessage(),
-    )
-
-    await router.complete_structured(
-        model_id=None, system="s", user="u", schema=FooSchema
-    )
-
-    call = mock_anthropic.chat.completions.create_with_completion.call_args
-    assert call.kwargs["model"] == settings.default_model_id
-
-
-# ===== T6: structured response =====
-
-
-async def test_returns_structured_response_with_parsed_pydantic(
-    router: LLMRouter, mock_anthropic: MagicMock
-) -> None:
+async def test_returns_structured_response(router: LLMRouter) -> None:
+    adapter = _adapter()
+    mock = _inject_mock_client(router, adapter)
     foo = FooSchema(name="alice", value=42)
-    mock_anthropic.chat.completions.create_with_completion.return_value = (
-        foo,
-        _AnthropicMessage(),
-    )
+    mock.chat.completions.create_with_completion.return_value = (foo, _AnthropicMessage())
 
     result = await router.complete_structured(
-        model_id="claude-sonnet-4-6",
-        system="s",
-        user="u",
-        schema=FooSchema,
+        adapter=adapter, system="s", user="u", schema=FooSchema
     )
-
     assert isinstance(result, StructuredResponse)
     assert isinstance(result.parsed, FooSchema)
     assert result.parsed.name == "alice"
-    assert result.parsed.value == 42
-    assert result.model_id == "claude-sonnet-4-6"
+    assert result.model_id == adapter.model
 
 
-# ===== T7: InstructorRetryException → StructuredOutputError =====
+# ===== T4: InstructorRetryException → StructuredOutputError =====
 
 
-async def test_instructor_retry_exception_becomes_structured_output_error(
-    router: LLMRouter, mock_anthropic: MagicMock
-) -> None:
-    # 用 __new__ 绕开 InstructorRetryException 复杂构造签名（版本可能变）
+async def test_instructor_retry_becomes_structured_output_error(router: LLMRouter) -> None:
+    adapter = _adapter()
+    mock = _inject_mock_client(router, adapter)
     exc = InstructorRetryException.__new__(InstructorRetryException)
-    Exception.__init__(exc, "validation failed after retries")
-    exc.last_completion = "bad raw output"
-
-    mock_anthropic.chat.completions.create_with_completion.side_effect = exc
+    Exception.__init__(exc, "validation failed")
+    exc.last_completion = "bad output"
+    mock.chat.completions.create_with_completion.side_effect = exc
 
     with pytest.raises(StructuredOutputError) as exc_info:
         await router.complete_structured(
-            model_id="claude-sonnet-4-6",
-            system="s",
-            user="u",
-            schema=FooSchema,
+            adapter=adapter, system="s", user="u", schema=FooSchema
         )
-
-    assert exc_info.value.model_id == "claude-sonnet-4-6"
-    assert "bad raw output" in (exc_info.value.raw_text or "")
-
-
-# ===== T8: arbitrary exception → LLMTransportError =====
+    assert exc_info.value.model_id == adapter.model
+    assert "bad output" in (exc_info.value.raw_text or "")
 
 
-async def test_arbitrary_exception_wrapped_as_transport_error(
-    router: LLMRouter, mock_anthropic: MagicMock
-) -> None:
+# ===== T5: arbitrary exception → LLMTransportError =====
+
+
+async def test_arbitrary_exception_wrapped_as_transport_error(router: LLMRouter) -> None:
+    adapter = _adapter()
+    mock = _inject_mock_client(router, adapter)
     cause = RuntimeError("boom")
-    mock_anthropic.chat.completions.create_with_completion.side_effect = cause
+    mock.chat.completions.create_with_completion.side_effect = cause
 
     with pytest.raises(LLMTransportError) as exc_info:
         await router.complete_structured(
-            model_id="claude-sonnet-4-6",
-            system="s",
-            user="u",
-            schema=FooSchema,
+            adapter=adapter, system="s", user="u", schema=FooSchema
         )
-
-    assert exc_info.value.model_id == "claude-sonnet-4-6"
     assert exc_info.value.cause is cause
-    assert "boom" in str(exc_info.value)
 
 
-# ===== T9-T10: usage extraction =====
+# ===== T6-T7: usage extraction =====
 
 
-async def test_extracts_anthropic_usage(
-    router: LLMRouter, mock_anthropic: MagicMock
-) -> None:
+async def test_extracts_anthropic_usage(router: LLMRouter) -> None:
+    adapter = _adapter()
+    mock = _inject_mock_client(router, adapter)
     foo = FooSchema(name="x")
-    mock_anthropic.chat.completions.create_with_completion.return_value = (
-        foo,
-        _AnthropicMessage(usage=_AnthropicUsage(input_tokens=10, output_tokens=20)),
+    mock.chat.completions.create_with_completion.return_value = (
+        foo, _AnthropicMessage(usage=_AnthropicUsage(input_tokens=10, output_tokens=20))
     )
 
     result = await router.complete_structured(
-        model_id="claude-sonnet-4-6",
-        system="s",
-        user="u",
-        schema=FooSchema,
+        adapter=adapter, system="s", user="u", schema=FooSchema
     )
-
     assert result.usage.input_tokens == 10
     assert result.usage.output_tokens == 20
     assert result.usage.total_tokens == 30
 
 
-async def test_extracts_openai_usage(
-    router: LLMRouter, mock_openai: MagicMock
-) -> None:
+async def test_extracts_openai_usage(router: LLMRouter) -> None:
+    adapter = _adapter(provider="openai", model="gpt-5")
+    mock = _inject_mock_client(router, adapter)
     foo = FooSchema(name="x")
-    mock_openai.chat.completions.create_with_completion.return_value = (
-        foo,
-        _OpenAICompletion(
-            usage=_OpenAIUsage(
-                prompt_tokens=15, completion_tokens=25, total_tokens=40
-            )
-        ),
+    mock.chat.completions.create_with_completion.return_value = (
+        foo, _OpenAICompletion(usage=_OpenAIUsage(15, 25, 40))
     )
 
     result = await router.complete_structured(
-        model_id="gpt-5", system="s", user="u", schema=FooSchema
+        adapter=adapter, system="s", user="u", schema=FooSchema
     )
-
     assert result.usage.input_tokens == 15
     assert result.usage.output_tokens == 25
     assert result.usage.total_tokens == 40
 
 
-# ===== T11-T12: finish_reason extraction =====
+# ===== T8-T9: finish_reason extraction =====
 
 
-async def test_extracts_anthropic_finish_reason(
-    router: LLMRouter, mock_anthropic: MagicMock
-) -> None:
+async def test_extracts_anthropic_finish_reason(router: LLMRouter) -> None:
+    adapter = _adapter()
+    mock = _inject_mock_client(router, adapter)
     foo = FooSchema(name="x")
-    mock_anthropic.chat.completions.create_with_completion.return_value = (
-        foo,
-        _AnthropicMessage(stop_reason="end_turn"),
+    mock.chat.completions.create_with_completion.return_value = (
+        foo, _AnthropicMessage(stop_reason="end_turn")
     )
 
     result = await router.complete_structured(
-        model_id="claude-sonnet-4-6",
-        system="s",
-        user="u",
-        schema=FooSchema,
+        adapter=adapter, system="s", user="u", schema=FooSchema
     )
-
     assert result.finish_reason == "end_turn"
 
 
-async def test_extracts_openai_finish_reason(
-    router: LLMRouter, mock_openai: MagicMock
-) -> None:
+async def test_extracts_openai_finish_reason(router: LLMRouter) -> None:
+    adapter = _adapter(provider="openai", model="gpt-5")
+    mock = _inject_mock_client(router, adapter)
     foo = FooSchema(name="x")
-    mock_openai.chat.completions.create_with_completion.return_value = (
-        foo,
-        _OpenAICompletion(finish_reason="stop"),
+    mock.chat.completions.create_with_completion.return_value = (
+        foo, _OpenAICompletion(finish_reason="stop")
     )
 
     result = await router.complete_structured(
-        model_id="gpt-5", system="s", user="u", schema=FooSchema
+        adapter=adapter, system="s", user="u", schema=FooSchema
     )
-
     assert result.finish_reason == "stop"
 
 
-# ===== T13: kwargs passthrough =====
+# ===== T10: kwargs passthrough =====
 
 
-async def test_passes_max_retries_temperature_max_tokens(
-    router: LLMRouter, mock_anthropic: MagicMock
-) -> None:
+async def test_passes_max_retries_temperature_max_tokens(router: LLMRouter) -> None:
+    adapter = _adapter()
+    mock = _inject_mock_client(router, adapter)
     foo = FooSchema(name="x")
-    mock_anthropic.chat.completions.create_with_completion.return_value = (
-        foo,
-        _AnthropicMessage(),
-    )
+    mock.chat.completions.create_with_completion.return_value = (foo, _AnthropicMessage())
 
     await router.complete_structured(
-        model_id="claude-sonnet-4-6",
+        adapter=adapter,
         system="s",
         user="u",
         schema=FooSchema,
@@ -378,29 +286,104 @@ async def test_passes_max_retries_temperature_max_tokens(
         max_tokens=2048,
     )
 
-    call = mock_anthropic.chat.completions.create_with_completion.call_args
+    call = mock.chat.completions.create_with_completion.call_args
     assert call.kwargs["max_retries"] == 5
     assert call.kwargs["temperature"] == 0.3
     assert call.kwargs["max_tokens"] == 2048
 
 
-# ===== T14: raw_text == parsed.model_dump_json() =====
+# ===== T11: raw_text == parsed.model_dump_json() =====
 
 
-async def test_raw_text_is_parsed_model_dump_json(
-    router: LLMRouter, mock_anthropic: MagicMock
-) -> None:
+async def test_raw_text_is_parsed_model_dump_json(router: LLMRouter) -> None:
+    adapter = _adapter()
+    mock = _inject_mock_client(router, adapter)
     foo = FooSchema(name="bob", value=7)
-    mock_anthropic.chat.completions.create_with_completion.return_value = (
-        foo,
-        _AnthropicMessage(),
-    )
+    mock.chat.completions.create_with_completion.return_value = (foo, _AnthropicMessage())
 
     result = await router.complete_structured(
-        model_id="claude-sonnet-4-6",
-        system="s",
-        user="u",
-        schema=FooSchema,
+        adapter=adapter, system="s", user="u", schema=FooSchema
+    )
+    assert result.raw_text == foo.model_dump_json()
+
+
+# ===== T15: unknown provider → LLMTransportError =====
+
+
+async def test_unknown_provider_raises_transport_error(router: LLMRouter) -> None:
+    adapter = _adapter(provider="nonexistent", model="some-model")
+
+    with pytest.raises(LLMTransportError) as exc_info:
+        await router.complete_structured(
+            adapter=adapter, system="s", user="u", schema=FooSchema
+        )
+    assert "Unknown provider" in str(exc_info.value)
+    assert exc_info.value.model_id == "some-model"
+
+
+# ===== T16: 客户端缓存复用 =====
+
+
+async def test_client_cache_reuse(router: LLMRouter) -> None:
+    adapter = _adapter()
+    mock = _inject_mock_client(router, adapter)
+    foo = FooSchema(name="x")
+    mock.chat.completions.create_with_completion.return_value = (foo, _AnthropicMessage())
+
+    await router.complete_structured(adapter=adapter, system="s", user="u", schema=FooSchema)
+    await router.complete_structured(adapter=adapter, system="s", user="u", schema=FooSchema)
+
+    assert len(router._client_cache) == 1
+    assert mock.chat.completions.create_with_completion.call_count == 2
+
+
+# ===== T17: 不同 credentials 不复用客户端 =====
+
+
+async def test_different_credentials_different_client(router: LLMRouter) -> None:
+    adapter_a = _adapter(credentials={"api_key": "key-a"})
+    adapter_b = _adapter(credentials={"api_key": "key-b"})
+    mock_a = _inject_mock_client(router, adapter_a)
+    mock_b = _inject_mock_client(router, adapter_b)
+    foo = FooSchema(name="x")
+    mock_a.chat.completions.create_with_completion.return_value = (foo, _AnthropicMessage())
+    mock_b.chat.completions.create_with_completion.return_value = (foo, _AnthropicMessage())
+
+    await router.complete_structured(adapter=adapter_a, system="s", user="u", schema=FooSchema)
+    await router.complete_structured(adapter=adapter_b, system="s", user="u", schema=FooSchema)
+
+    assert len(router._client_cache) == 2
+    mock_a.chat.completions.create_with_completion.assert_called_once()
+    mock_b.chat.completions.create_with_completion.assert_called_once()
+
+
+# ===== T18: mock provider 通过 registry 分发 =====
+
+
+async def test_mock_provider_dispatches_via_registry(router: LLMRouter) -> None:
+    """注入临时 mock provider 到 registry，验证 router 能正确分发。"""
+    mock_client = MagicMock()
+    mock_client.chat.completions.create_with_completion = AsyncMock()
+    foo = FooSchema(name="from-mock")
+    mock_client.chat.completions.create_with_completion.return_value = (
+        foo, _AnthropicMessage()
     )
 
-    assert result.raw_text == foo.model_dump_json()
+    test_key = f"_test_provider_{uuid4().hex[:8]}"
+    PROVIDER_REGISTRY[test_key] = ProviderSpec(
+        key=test_key,
+        label="Test Provider",
+        credentials_fields={
+            "token": FieldDef(label="Token Env", type="secret_env_name"),
+        },
+        build_client=lambda _r: mock_client,
+    )
+    try:
+        adapter = _adapter(provider=test_key, credentials={"token": "test-val"})
+        result = await router.complete_structured(
+            adapter=adapter, system="s", user="u", schema=FooSchema
+        )
+        assert result.parsed.name == "from-mock"
+        mock_client.chat.completions.create_with_completion.assert_called_once()
+    finally:
+        del PROVIDER_REGISTRY[test_key]
