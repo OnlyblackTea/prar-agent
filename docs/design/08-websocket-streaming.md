@@ -1,6 +1,6 @@
 # 08. 基础 WebSocket 流式管道
 
-> **状态**：DRAFT，待 APPROVED
+> **状态**：APPROVED，已实施
 > **依赖**：Task 01（骨架）、Task 05（logging + request_id）、Task 07（PlanEngine）
 > **被依赖**：Task 10（前端 plan 渲染消费 WS 事件）、Task 19（工具输出流式复用此管道）
 > **commit 范围**：单个 commit
