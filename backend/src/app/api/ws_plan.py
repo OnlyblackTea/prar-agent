@@ -8,14 +8,11 @@ from pydantic import BaseModel, Field, ValidationError
 from app.core.logging import get_logger, request_id_var
 from app.core.ws_streamer import stream_plan
 from app.llm.router import LLMError, LLMTransportError, StructuredOutputError
+from app.services.adapter_service import AdapterNotFoundError
 
 _log = get_logger("ws_plan")
 
 router = APIRouter(prefix="/api/ws", tags=["websocket"])
-
-
-class AdapterNotFoundError(Exception):
-    """adapter_id 在 DB 中找不到。Task 10+ 移到 services 层。"""
 
 
 class GenerateMessage(BaseModel):

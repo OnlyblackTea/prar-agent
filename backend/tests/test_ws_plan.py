@@ -63,12 +63,12 @@ def test_ws_rejects_missing_required_field(ws_client: TestClient) -> None:
 
 
 def test_ws_returns_adapter_not_found(ws_client: TestClient) -> None:
-    from app.api.ws_plan import AdapterNotFoundError
+    from app.services.adapter_service import AdapterNotFoundError
 
     with patch(
         "app.api.ws_plan._resolve_dependencies",
         new_callable=AsyncMock,
-        side_effect=AdapterNotFoundError("not found"),
+        side_effect=AdapterNotFoundError(uuid.uuid4()),
     ):
         sid = uuid.uuid4()
         with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/plan") as ws:
