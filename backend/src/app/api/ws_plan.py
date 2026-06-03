@@ -85,7 +85,7 @@ async def plan_websocket(websocket: WebSocket, session_id: uuid.UUID) -> None:
             await _send_error(websocket, "structured_output", str(e))
             return
         except LLMError as e:
-            await _send_error(websocket, "llm_transport", str(e))
+            await _send_error(websocket, "llm_error", str(e))
             return
 
         async for event in stream_plan(plan, str(session_id)):
