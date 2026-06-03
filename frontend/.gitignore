@@ -1,0 +1,17 @@
+node_modules
+dist
+.vite
+*.local
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# Build artifacts
+*.tsbuildinfo
+src/**/*.js
+src/**/*.d.ts
+vite.config.js
+vite.config.d.ts
+pnpm-workspace.yaml
