@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.state_machine import InvalidTransitionError, Phase
+from app.core.state_machine import InvalidTransitionError
 from app.db.session import get_db
 from app.services.session_service import SessionNotFoundError, SessionService
 
@@ -91,8 +91,8 @@ async def get_session(
 ) -> SessionResponse:
     try:
         s = await service.get(session_id)
-    except SessionNotFoundError:
-        raise HTTPException(status_code=404, detail="session_not_found")
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail="session_not_found") from e
     return SessionResponse.model_validate(s)
 
 
@@ -124,8 +124,8 @@ async def answer_decision(
             decision_id=decision_id,
             answer=payload.answer,
         )
-    except SessionNotFoundError:
-        raise HTTPException(status_code=404, detail="session_not_found")
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail="session_not_found") from e
     except ValueError as e:
         msg = str(e)
         if "not in options" in msg:
@@ -146,12 +146,12 @@ async def advance_to_acting(
 ) -> AdvanceToActingResponse:
     try:
         s = await service.advance_to_acting(session_id)
-    except SessionNotFoundError:
-        raise HTTPException(status_code=404, detail="session_not_found")
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail="session_not_found") from e
     except ValueError as e:
         raise HTTPException(status_code=409, detail="blocking_unanswered") from e
-    except InvalidTransitionError:
+    except InvalidTransitionError as e:
         raise HTTPException(
             status_code=409, detail="illegal_phase_transition",
-        )
+        ) from e
     return AdvanceToActingResponse(phase=s.phase)

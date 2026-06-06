@@ -1,11 +1,13 @@
 """WebSocket: /api/ws/sessions/{session_id}/plan"""
 
 import uuid
+from functools import lru_cache
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.logging import get_logger, request_id_var
 from app.core.plan_engine import PlanEngine
 from app.core.ws_streamer import stream_plan
@@ -18,6 +20,12 @@ from app.services.session_service import SessionService
 _log = get_logger("ws_plan")
 
 router = APIRouter(prefix="/api/ws", tags=["websocket"])
+
+
+@lru_cache(maxsize=1)
+def get_router() -> LLMRouter:
+    """LLMRouter 单例，WS 和 HTTP 共享（含客户端缓存）。"""
+    return LLMRouter(get_settings())
 
 
 class GenerateMessage(BaseModel):
@@ -113,17 +121,4 @@ async def plan_websocket(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 pass
         finally:
             await _close_quietly(websocket)
-
-
-def get_router() -> LLMRouter:
-    """LLMRouter 单例，WS 和 HTTP 共享。"""
-    from functools import lru_cache as _lru
-
-    @_lru(maxsize=1)
-    def _factory() -> LLMRouter:
-        from app.config import get_settings
-
-        return LLMRouter(get_settings())
-
-    return _factory()
 
