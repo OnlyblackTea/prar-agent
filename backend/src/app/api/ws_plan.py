@@ -4,11 +4,16 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger, request_id_var
+from app.core.plan_engine import PlanEngine
 from app.core.ws_streamer import stream_plan
-from app.llm.router import LLMError, LLMTransportError, StructuredOutputError
-from app.services.adapter_service import AdapterNotFoundError
+from app.db.session import get_sessionmaker
+from app.llm.router import LLMError, LLMRouter, LLMTransportError, StructuredOutputError
+from app.llm.types import ResolvedAdapter
+from app.services.adapter_service import AdapterNotFoundError, AdapterService
+from app.services.session_service import SessionService
 
 _log = get_logger("ws_plan")
 
@@ -25,12 +30,14 @@ class GenerateMessage(BaseModel):
 
 async def _resolve_dependencies(
     adapter_id: uuid.UUID,
-) -> tuple:
-    """解析 adapter + 构造 PlanEngine。TODO: Task 10+ 接 DB session middleware。"""
-    raise NotImplementedError(
-        f"adapter resolve not yet implemented (adapter_id={adapter_id}). "
-        "Requires DB session middleware — see Task 10+."
-    )
+    db: AsyncSession,
+    router: LLMRouter,
+) -> tuple[ResolvedAdapter, PlanEngine]:
+    adapter_service = AdapterService(db)
+    db_adapter = await adapter_service.get(adapter_id)
+    resolved = adapter_service.resolve(db_adapter)
+    plan_engine = PlanEngine(router)
+    return resolved, plan_engine
 
 
 async def _send_error(ws: WebSocket, code: str, message: str) -> None:
@@ -52,49 +59,71 @@ async def plan_websocket(websocket: WebSocket, session_id: uuid.UUID) -> None:
     await websocket.accept()
     _log.info("ws_connected", session_id=str(session_id))
 
-    try:
-        raw = await websocket.receive_json()
+    async with get_sessionmaker()() as db:
         try:
-            msg = GenerateMessage.model_validate(raw)
-        except ValidationError as e:
-            await _send_error(websocket, "invalid_message", str(e))
-            return
+            raw = await websocket.receive_json()
+            try:
+                msg = GenerateMessage.model_validate(raw)
+            except ValidationError as e:
+                await _send_error(websocket, "invalid_message", str(e))
+                return
 
-        try:
-            adapter, plan_engine = await _resolve_dependencies(msg.adapter_id)
-        except AdapterNotFoundError:
-            await _send_error(
-                websocket, "adapter_not_found", str(msg.adapter_id)
-            )
-            return
-        except NotImplementedError as e:
-            await _send_error(websocket, "internal", str(e))
-            return
+            try:
+                adapter, plan_engine = await _resolve_dependencies(
+                    msg.adapter_id, db, get_router(),
+                )
+            except AdapterNotFoundError:
+                await _send_error(
+                    websocket, "adapter_not_found", str(msg.adapter_id),
+                )
+                return
 
-        try:
-            plan = await plan_engine.generate(
-                init_request=msg.init_request,
-                adapter=adapter,
-                ltm_recall=msg.ltm_recall,
-                available_tools=msg.available_tools,
-            )
-        except LLMTransportError as e:
-            await _send_error(websocket, "llm_transport", str(e))
-            return
-        except StructuredOutputError as e:
-            await _send_error(websocket, "structured_output", str(e))
-            return
-        except LLMError as e:
-            await _send_error(websocket, "llm_error", str(e))
-            return
+            try:
+                plan = await plan_engine.generate(
+                    init_request=msg.init_request,
+                    adapter=adapter,
+                    ltm_recall=msg.ltm_recall,
+                    available_tools=msg.available_tools,
+                )
+            except LLMTransportError as e:
+                await _send_error(websocket, "llm_transport", str(e))
+                return
+            except StructuredOutputError as e:
+                await _send_error(websocket, "structured_output", str(e))
+                return
+            except LLMError as e:
+                await _send_error(websocket, "llm_error", str(e))
+                return
 
-        async for event in stream_plan(plan, str(session_id)):
-            await websocket.send_json(event)
+            # 持久化 plan 到 DB（stream 前）
+            session_service = SessionService(db)
+            await session_service.save_plan(session_id=session_id, plan=plan)
+            await db.commit()
 
-    except WebSocketDisconnect:
-        _log.info("ws_disconnected", session_id=str(session_id))
-    except Exception as e:
-        _log.exception("ws_internal_error", error=str(e))
-        await _send_error(websocket, "internal", str(e))
-    finally:
-        await _close_quietly(websocket)
+            async for event in stream_plan(plan, str(session_id)):
+                await websocket.send_json(event)
+
+        except WebSocketDisconnect:
+            _log.info("ws_disconnected", session_id=str(session_id))
+        except Exception as e:
+            _log.exception("ws_internal_error", error=str(e))
+            try:
+                await _send_error(websocket, "internal", str(e))
+            except Exception:
+                pass
+        finally:
+            await _close_quietly(websocket)
+
+
+def get_router() -> LLMRouter:
+    """LLMRouter 单例，WS 和 HTTP 共享。"""
+    from functools import lru_cache as _lru
+
+    @_lru(maxsize=1)
+    def _factory() -> LLMRouter:
+        from app.config import get_settings
+
+        return LLMRouter(get_settings())
+
+    return _factory()
+

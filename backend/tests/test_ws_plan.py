@@ -132,11 +132,18 @@ def test_ws_success_emits_full_event_sequence(ws_client: TestClient) -> None:
     mock_adapter = MagicMock()
     mock_engine = AsyncMock()
     mock_engine.generate.return_value = plan
+    mock_session_svc = AsyncMock()
 
-    with patch(
-        "app.api.ws_plan._resolve_dependencies",
-        new_callable=AsyncMock,
-        return_value=(mock_adapter, mock_engine),
+    with (
+        patch(
+            "app.api.ws_plan._resolve_dependencies",
+            new_callable=AsyncMock,
+            return_value=(mock_adapter, mock_engine),
+        ),
+        patch(
+            "app.api.ws_plan.SessionService",
+            return_value=mock_session_svc,
+        ),
     ):
         sid = uuid.uuid4()
         with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/plan") as ws:

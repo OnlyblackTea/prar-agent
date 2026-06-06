@@ -5,6 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.session import get_db
 from app.services.adapter_service import AdapterNotFoundError, AdapterService
 
 router = APIRouter(prefix="/api/adapters", tags=["adapters"])
@@ -45,8 +48,10 @@ class ModelAdapterResponse(BaseModel):
 # ===== Dependency（占位，DB session middleware 建好后替换） =====
 
 
-async def get_adapter_service() -> AdapterService:
-    raise NotImplementedError("DB session dependency not wired yet")
+async def get_adapter_service(
+    db: AsyncSession = Depends(get_db),
+) -> AdapterService:
+    return AdapterService(db)
 
 
 # ===== Routes =====
