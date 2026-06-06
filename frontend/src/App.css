@@ -113,3 +113,239 @@ main {
   border-top: 1px solid #e5e7eb;
   margin: 1.5rem 0;
 }
+
+/* ===== InitForm ===== */
+
+.init-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.init-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.init-form-field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.init-form-field input,
+.init-form-field textarea {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  transition: border-color 0.15s;
+}
+
+.init-form-field input:focus,
+.init-form-field textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.init-form button {
+  align-self: flex-start;
+  padding: 0.65rem 1.5rem;
+  background: #6366f1;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.init-form button:hover:not(:disabled) {
+  background: #4f46e5;
+}
+
+.init-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ===== Decision Node ===== */
+
+.decision-node {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin: 1rem 0;
+}
+
+.decision-question {
+  font-weight: 600;
+  color: #3730a3;
+  margin-bottom: 0.65rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.decision-badge {
+  font-size: 0.75rem;
+  background: #6366f1;
+  color: #fff;
+  padding: 0.1em 0.55em;
+  border-radius: 4px;
+}
+
+.decision-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.decision-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  color: #4338ca;
+}
+
+.decision-option input:disabled + span {
+  opacity: 0.7;
+  cursor: default;
+}
+
+/* ===== Glossary Node ===== */
+
+.glossary-term {
+  border-bottom: 1px dashed #6366f1;
+  cursor: help;
+  color: #4338ca;
+  font-weight: 500;
+}
+
+/* ===== Step Node ===== */
+
+.step-node {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin: 0.75rem 0;
+}
+
+.step-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.5rem;
+}
+
+.step-header strong {
+  color: #166534;
+}
+
+.step-tool {
+  font-size: 0.8rem;
+  background: #dcfce7;
+  color: #15803d;
+  padding: 0.1em 0.5em;
+  border-radius: 4px;
+}
+
+.step-badge {
+  font-size: 0.7rem;
+  background: #22c55e;
+  color: #fff;
+  padding: 0.1em 0.5em;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.step-description {
+  color: #374151;
+  margin: 0.4rem 0;
+  font-size: 0.93rem;
+}
+
+.step-args {
+  background: #052e16;
+  color: #86efac;
+  padding: 0.65rem 1rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  overflow-x: auto;
+  margin-top: 0.5rem;
+}
+
+/* ===== Action Bar ===== */
+
+.action-bar {
+  margin-top: 1.5rem;
+  text-align: right;
+}
+
+.action-button {
+  padding: 0.7rem 2rem;
+  background: #059669;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.action-button:hover:not(:disabled) {
+  background: #047857;
+}
+
+.action-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ===== Error Banner ===== */
+
+.error-banner {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin-top: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.error-banner-code {
+  font-weight: 700;
+  color: #dc2626;
+  font-family: monospace;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.error-banner-message {
+  color: #991b1b;
+  font-size: 0.93rem;
+  flex: 1;
+}
+
+.error-banner-dismiss {
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 0.25rem;
+}
