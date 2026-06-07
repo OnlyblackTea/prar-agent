@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.api.adapters import router as adapters_router
 from app.api.providers import router as providers_router
+from app.api.comments import router as comments_router
 from app.api.sessions import router as sessions_router
 from app.api.ws_plan import router as ws_plan_router
 from app.config import get_settings
@@ -21,6 +22,7 @@ def create_app() -> FastAPI:
     app.include_router(providers_router)
     app.include_router(adapters_router)
     app.include_router(sessions_router)
+    app.include_router(comments_router)
     app.include_router(ws_plan_router)
     return app
 

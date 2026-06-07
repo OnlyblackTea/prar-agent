@@ -1,6 +1,6 @@
 # 11. AnchorMark + CommentThread (M2 Plan Review 入口)
 
-> **状态**：DRAFT，待 APPROVED
+> **状态**：APPROVED（Q1=A, Q2=A, Q3=A — 按推荐默认值）
 > **依赖**：Task 02（`comments` 表已建）、Task 03（state_machine）、Task 09（前端骨架）、Task 10（Plan 渲染 + Session API + Tiptap 三节点）
 > **被依赖**：Task 12（Review Merger 从 `comments` 读输入）、Task 13（diff 视图过滤历史评论）、Task 14（fuzzy anchor 回源算法）
 > **commit 范围**：拆 2 个 commit（详见 §11）

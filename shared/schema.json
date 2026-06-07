@@ -513,6 +513,105 @@
       },
       "title": "CriticResult",
       "type": "object"
+    },
+    "CommentCreate": {
+      "description": "前端写入评论请求体。",
+      "properties": {
+        "anchor_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Anchor Id",
+          "type": "string"
+        },
+        "plan_version": {
+          "minimum": 1,
+          "title": "Plan Version",
+          "type": "integer"
+        },
+        "quote": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        },
+        "quote_context": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Quote Context",
+          "type": "string"
+        },
+        "body": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Body",
+          "type": "string"
+        }
+      },
+      "required": [
+        "anchor_id",
+        "plan_version",
+        "quote",
+        "body"
+      ],
+      "title": "CommentCreate",
+      "type": "object"
+    },
+    "CommentResponse": {
+      "description": "评论返回体。",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "plan_version": {
+          "title": "Plan Version",
+          "type": "integer"
+        },
+        "anchor_id": {
+          "title": "Anchor Id",
+          "type": "string"
+        },
+        "quote": {
+          "title": "Quote",
+          "type": "string"
+        },
+        "quote_context": {
+          "title": "Quote Context",
+          "type": "string"
+        },
+        "body": {
+          "title": "Body",
+          "type": "string"
+        },
+        "resolved": {
+          "title": "Resolved",
+          "type": "boolean"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "plan_version",
+        "anchor_id",
+        "quote",
+        "quote_context",
+        "body",
+        "resolved",
+        "created_at"
+      ],
+      "title": "CommentResponse",
+      "type": "object"
     }
   }
 }

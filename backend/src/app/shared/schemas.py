@@ -10,6 +10,7 @@ from app.api.adapters import (
     ModelAdapterResponse,
     ModelAdapterUpdate,
 )
+from app.core.comment_schemas import CommentCreate, CommentResponse
 from app.core.plan_schemas import CriticResult, PlanDocument
 from app.health import HealthResponse
 
@@ -20,4 +21,6 @@ SHARED_SCHEMAS: list[type] = [
     ModelAdapterResponse,
     PlanDocument,
     CriticResult,
+    CommentCreate,
+    CommentResponse,
 ]
