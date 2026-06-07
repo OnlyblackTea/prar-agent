@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 
 from app.api.adapters import router as adapters_router
-from app.api.providers import router as providers_router
 from app.api.comments import router as comments_router
+from app.api.providers import router as providers_router
 from app.api.sessions import router as sessions_router
 from app.api.ws_plan import router as ws_plan_router
 from app.config import get_settings

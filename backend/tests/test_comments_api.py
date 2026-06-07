@@ -1,5 +1,5 @@
 """Comment API 集成测试 — 使用 TestClient + dependency override 注入 mock service。"""
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -40,7 +40,7 @@ def make_comment_response(**overrides) -> CommentResponse:
         "quote_context": "ctx",
         "body": "my comment",
         "resolved": False,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     defaults.update(overrides)
     c = MagicMock(spec=CommentResponse)

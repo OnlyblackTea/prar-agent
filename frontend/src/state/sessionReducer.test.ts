@@ -42,7 +42,7 @@ describe('sessionReducer', () => {
     }
   })
 
-  it('WS_PLAN_DONE transitions streaming → review', () => {
+  it('WS_PLAN_DONE transitions streaming → review and increments planVersion', () => {
     const state = sessionReducer(
       {
         status: 'streaming',
@@ -69,6 +69,24 @@ describe('sessionReducer', () => {
     expect(state.status).toBe('review')
     if (state.status === 'review') {
       expect(state.comments).toEqual([])
+      // backend save_plan 把 current_plan_version 0→1，前端同步
+      expect(state.planVersion).toBe(1)
+    }
+  })
+
+  it('WS_PLAN_DONE increments planVersion from existing version (Task 12 case)', () => {
+    const state = sessionReducer(
+      {
+        status: 'streaming',
+        sessionId: 'sid',
+        planVersion: 1,
+        plan: { title: 'T', summary: 'S', nodes: [] },
+      },
+      { type: 'WS_PLAN_DONE', totalNodes: 0 },
+    )
+    expect(state.status).toBe('review')
+    if (state.status === 'review') {
+      expect(state.planVersion).toBe(2)
     }
   })
 

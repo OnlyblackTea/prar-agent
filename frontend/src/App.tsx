@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { PlanDocEditor, type SelectionSnapshot } from './editor/PlanDocEditor'
 import { planToTiptapDoc } from './editor/serializer'
 import { applyAnchorMark } from './editor/marks/AnchorMark'
@@ -34,6 +35,20 @@ function eventToAction(event: WSEvent) {
   }
 }
 
+// 在 plan doc 中按 quote 文本第一次出现找位置；M2 简化版，Task 14 升级 fuzzy match
+function findRangeByQuote(
+  doc: ProseMirrorNode,
+  quote: string,
+): { from: number; to: number } | null {
+  let result: { from: number; to: number } | null = null
+  doc.descendants((node, pos) => {
+    if (result || !node.isText || !node.text) return
+    const idx = node.text.indexOf(quote)
+    if (idx >= 0) result = { from: pos + idx, to: pos + idx + quote.length }
+  })
+  return result
+}
+
 export default function App() {
   const [state, dispatch] = useReducer(sessionReducer, { status: 'idle' } as SessionState)
   const clientRef = useRef<PlanStreamClient | null>(null)
@@ -49,6 +64,30 @@ export default function App() {
       // no comments yet — fine
     })
   }, [state.status])
+
+  // 回放未在 editor 中应用的 anchor mark（页面刷新后从 DB 拉回的评论需要重新打 mark）
+  const commentsLen = state.status === 'review' ? state.comments.length : 0
+  useEffect(() => {
+    if (state.status !== 'review' || !editorRef.current) return
+    const editor = editorRef.current
+    const existingAnchors = new Set<string>()
+    editor.state.doc.descendants((node: ProseMirrorNode) => {
+      node.marks.forEach((m) => {
+        if (m.type.name === 'anchor') {
+          existingAnchors.add(m.attrs.anchor_id as string)
+        }
+      })
+    })
+    for (const c of state.comments) {
+      if (existingAnchors.has(c.anchor_id)) continue
+      const range = findRangeByQuote(editor.state.doc, c.quote)
+      if (!range) continue
+      applyAnchorMark(editor, range.from, range.to, {
+        anchor_id: c.anchor_id,
+        resolved: c.resolved,
+      })
+    }
+  }, [state.status, commentsLen])
 
   const handleStart = async (initRequest: string, adapterId: string) => {
     try {

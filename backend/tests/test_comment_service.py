@@ -1,7 +1,7 @@
 """CommentService 单元测试 — 全部 mock AsyncSession。"""
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 
@@ -24,8 +24,8 @@ def make_session(**overrides) -> Session:
         "current_plan_version": 1,
         "adapter_id": uuid4(),
         "metadata_json": {},
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
     }
     defaults.update(overrides)
     s = MagicMock(spec=Session)
@@ -44,7 +44,7 @@ def make_comment_row(**overrides) -> Comment:
         "quote_context": "context...",
         "body": "my comment",
         "resolved": False,
-        "created_at": datetime.now(timezone.utc),
+        "created_at": datetime.now(UTC),
     }
     defaults.update(overrides)
     c = MagicMock(spec=Comment)
@@ -169,8 +169,8 @@ class TestCommentServiceCreate:
 class TestCommentServiceList:
     async def test_list_by_version(self):
         db = AsyncMock()
-        c1 = make_comment_row(created_at=datetime(2025, 1, 1, tzinfo=timezone.utc))
-        c2 = make_comment_row(created_at=datetime(2025, 1, 2, tzinfo=timezone.utc))
+        c1 = make_comment_row(created_at=datetime(2025, 1, 1, tzinfo=UTC))
+        c2 = make_comment_row(created_at=datetime(2025, 1, 2, tzinfo=UTC))
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [c1, c2]

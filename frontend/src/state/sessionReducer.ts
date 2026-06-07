@@ -63,10 +63,12 @@ export function sessionReducer(
 
     case 'WS_PLAN_DONE':
       if (state.status !== 'streaming') return state
+      // backend save_plan 把 current_plan_version+1，前端同步自增（首次 0→1，
+      // 后续 Task 12 Review Merger 触发时 1→2）
       return {
         status: 'review',
         sessionId: state.sessionId,
-        planVersion: state.planVersion,
+        planVersion: state.planVersion + 1,
         plan: state.plan as PlanDocument,
         comments: [],
       }
