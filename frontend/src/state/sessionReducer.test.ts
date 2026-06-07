@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { sessionReducer, allBlockingAnswered } from './sessionReducer'
+import type { CommentResponse } from '@/types/shared'
+
+const emptyComments: CommentResponse[] = []
 
 describe('sessionReducer', () => {
   it('START_SESSION transitions idle → connecting', () => {
-    const state = sessionReducer({ status: 'idle' }, { type: 'START_SESSION', sessionId: 'sid' })
-    expect(state).toEqual({ status: 'connecting', sessionId: 'sid' })
+    const state = sessionReducer(
+      { status: 'idle' },
+      { type: 'START_SESSION', sessionId: 'sid', planVersion: 0 },
+    )
+    expect(state).toEqual({ status: 'connecting', sessionId: 'sid', planVersion: 0 })
   })
 
   it('WS_PLAN_START transitions connecting → streaming with plan init', () => {
     const state = sessionReducer(
-      { status: 'connecting', sessionId: 'sid' },
+      { status: 'connecting', sessionId: 'sid', planVersion: 0 },
       { type: 'WS_PLAN_START', title: 'Test Plan', summary: 'A summary' },
     )
     expect(state).toMatchObject({
@@ -25,6 +31,7 @@ describe('sessionReducer', () => {
       {
         status: 'streaming',
         sessionId: 'sid',
+        planVersion: 0,
         plan: { title: 'T', summary: 'S', nodes: [] },
       },
       { type: 'WS_PLAN_NODE', node },
@@ -40,6 +47,7 @@ describe('sessionReducer', () => {
       {
         status: 'streaming',
         sessionId: 'sid',
+        planVersion: 0,
         plan: {
           title: 'T',
           summary: 'S',
@@ -59,6 +67,9 @@ describe('sessionReducer', () => {
       { type: 'WS_PLAN_DONE', totalNodes: 1 },
     )
     expect(state.status).toBe('review')
+    if (state.status === 'review') {
+      expect(state.comments).toEqual([])
+    }
   })
 
   it('ANSWER_DECISION updates target node answer', () => {
@@ -66,6 +77,7 @@ describe('sessionReducer', () => {
       {
         status: 'review',
         sessionId: 'sid',
+        planVersion: 0,
         plan: {
           title: 'T',
           summary: 'S',
@@ -90,6 +102,7 @@ describe('sessionReducer', () => {
             },
           ],
         },
+        comments: emptyComments,
       },
       { type: 'ANSWER_DECISION', id: 'dec_001', answer: 'A' },
     )
@@ -99,6 +112,60 @@ describe('sessionReducer', () => {
         (n) => n.type === 'decision' && n.id === 'dec_001',
       ) as { answer: string | null } | undefined
       expect(dec1?.answer).toBe('A')
+    }
+  })
+
+  it('LOAD_COMMENTS loads comment array in review', () => {
+    const c: CommentResponse = {
+      id: 'c1',
+      session_id: 'sid',
+      plan_version: 1,
+      anchor_id: 'a1',
+      quote: 'hi',
+      quote_context: '',
+      body: 'comment',
+      resolved: false,
+      created_at: '2025-01-01T00:00:00Z',
+    }
+    const state = sessionReducer(
+      {
+        status: 'review',
+        sessionId: 'sid',
+        planVersion: 1,
+        plan: { title: 'T', summary: 'S', nodes: [] },
+        comments: emptyComments,
+      },
+      { type: 'LOAD_COMMENTS', comments: [c] },
+    )
+    if (state.status === 'review') {
+      expect(state.comments).toEqual([c])
+    }
+  })
+
+  it('ADD_COMMENT appends comment in review', () => {
+    const c: CommentResponse = {
+      id: 'c1',
+      session_id: 'sid',
+      plan_version: 1,
+      anchor_id: 'a1',
+      quote: 'hi',
+      quote_context: '',
+      body: 'comment',
+      resolved: false,
+      created_at: '2025-01-01T00:00:00Z',
+    }
+    const state = sessionReducer(
+      {
+        status: 'review',
+        sessionId: 'sid',
+        planVersion: 1,
+        plan: { title: 'T', summary: 'S', nodes: [] },
+        comments: emptyComments,
+      },
+      { type: 'ADD_COMMENT', comment: c },
+    )
+    if (state.status === 'review') {
+      expect(state.comments).toEqual([c])
     }
   })
 
