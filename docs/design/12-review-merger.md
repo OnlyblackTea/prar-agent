@@ -52,7 +52,57 @@ ROADMAP §41-50 M2 目标：**用户评论 → 真正改 plan → 看到 v1 → 
 | P5 | `SessionService` 无 merge 编排 | 加 `merge_plan` 方法 |
 | P6 | `CommentService` 无批量标 resolved | 加 `mark_resolved` 方法 |
 | P7 | 前端无"Apply Reviews"入口 | 加按钮 + handler + reducer action |
-| P8 | shared schema 未含 Merger 类型 | `shared/schemas.py` + 重生成 `schema.json` |
+| P8 | shared schema 未含 Merger 类型 | `backend/src/app/shared/schemas.py` + 重生成 `schema.json` |
+
+### 2.1 输入 / 输出（WORKFLOW §2.2 汇总）
+
+**上游产物（输入）**：
+- Task 11：Comment CRUD + AnchorMark + `CommentService.list_by_version`
+- Task 07：`plan_engine._apply_critic` / `_assign_ids` / `_load_prompt`、`CriticAction` / `CriticResult` schema
+- Task 04.1：`LLMRouter.complete_structured` + `AdapterService`
+- Task 08/10：`ws_plan.get_router` 单例约定、前端 reducer/fetch 模式
+
+**本任务交付物（输出）**：下方 §2.2 文件清单全部落地 + 14 个新后端测试 + 1 个新前端测试全绿 + §1.1 人工 E2E 通过。
+
+### 2.2 文件清单（WORKFLOW §2.2 汇总）
+
+**新增**：
+
+| 文件 | 作用 |
+|------|------|
+| `backend/src/app/core/merger_schemas.py` | `MergerAction` / `MergerResult` schema |
+| `backend/src/app/core/review_merger.py` | `ReviewMerger` LLM 编排 |
+| `backend/src/app/llm/prompts/merger.md` | merger prompt 模板 |
+| `backend/tests/test_review_merger.py` | unit ~5 cases（mock router）|
+| `backend/tests/test_session_merge_service.py` | service integration ~6 cases |
+| `backend/tests/test_merge_api.py` | API integration ~3 cases |
+| `frontend/src/api/merge.ts` | `mergeReviews` fetch wrapper |
+
+**修改**：
+
+| 文件 | 改动 |
+|------|------|
+| `backend/src/app/services/session_service.py` | 新增 `merge_plan` |
+| `backend/src/app/services/comment_service.py` | 新增 `list_unresolved` / `mark_resolved` |
+| `backend/src/app/api/sessions.py` | 新增 `POST /{session_id}/merge` |
+| `backend/src/app/shared/schemas.py` | 注册 `MergerAction` / `MergerResult` |
+| `shared/schema.json` | `make gen-schema` 重生成 |
+| `frontend/src/state/sessionReducer.ts`（+test）| `MERGE_COMPLETED` action |
+| `frontend/src/components/CommentThreadPanel.tsx` | Apply Reviews 按钮 + resolved 灰显 |
+| `frontend/src/App.tsx` | `handleApplyReviews` 装配 |
+| `frontend/src/App.css` | `.apply-reviews-btn` / `.comment-resolved` 样式 |
+
+### 2.3 实施步骤（WORKFLOW §2.2 汇总，每步可独立验证）
+
+1. **12a-1**：`merger_schemas.py` + `merger.md` prompt → import 通过
+2. **12a-2**：`review_merger.py` + `test_review_merger.py` → 5 unit cases 绿
+3. **12a-3**：`comment_service` 两方法 + `session_service.merge_plan` + `test_session_merge_service.py` → 6 cases 绿
+4. **12a-4**：`POST /merge` endpoint + `test_merge_api.py` + shared schema 注册 + `make gen-schema` → 3 cases 绿
+5. **12a-5**：`ruff check` + `pytest -m "not smoke"` 全量绿 → **commit 1**（含本设计文档）
+6. **12b-1**：`api/merge.ts` + reducer `MERGE_COMPLETED` + test → vitest 绿
+7. **12b-2**：`CommentThreadPanel` 按钮 + `App.tsx` 装配 + CSS
+8. **12b-3**：`vitest run` + `tsc --noEmit` 全绿 → **commit 2**
+9. **手工 E2E**：§1.1 主流程 + §10.3 全 reject 冒烟
 
 ---
 
@@ -415,7 +465,7 @@ async def merge_plan_endpoint(
 
 ### 4.7 shared schema 注册
 
-`shared/schemas.py` 新增：
+`backend/src/app/shared/schemas.py` 新增（import 路径 `app.shared.schemas`，与 gen_schema.py 一致）：
 ```python
 from app.core.merger_schemas import MergerAction, MergerResult
 ...
