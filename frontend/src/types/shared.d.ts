@@ -57,3 +57,15 @@ export interface MergerResult {
   actions: MergerAction[]
   overall_comment: string
 }
+
+export interface PlanSummary {
+  version: number
+  node_count: number
+  created_at: string
+}
+
+export interface PlanListResponse {
+  session_id: string
+  current_version: number
+  versions: PlanSummary[]
+}

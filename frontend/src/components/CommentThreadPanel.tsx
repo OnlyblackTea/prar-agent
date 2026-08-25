@@ -17,6 +17,8 @@ interface CommentThreadPanelProps {
   onApplyReviews?: () => void
   mergeBusy?: boolean
   unresolvedCount?: number
+  /** 历史版本只读浏览：禁新评论输入、禁 Apply（设计 §3.4） */
+  readonly?: boolean
 }
 
 export function CommentThreadPanel({
@@ -28,6 +30,7 @@ export function CommentThreadPanel({
   onApplyReviews,
   mergeBusy,
   unresolvedCount,
+  readonly = false,
 }: CommentThreadPanelProps) {
   const [body, setBody] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -46,7 +49,7 @@ export function CommentThreadPanel({
   return (
     <aside className="comment-panel" data-testid="comment-panel">
       <h3>Comments</h3>
-      {onApplyReviews && (
+      {!readonly && onApplyReviews && (
         <button
           className="apply-reviews-btn"
           onClick={onApplyReviews}
@@ -55,7 +58,7 @@ export function CommentThreadPanel({
           {mergeBusy ? 'Merging...' : `Apply Reviews (${unresolvedCount})`}
         </button>
       )}
-      {pendingSelection && (
+      {!readonly && pendingSelection && (
         <div className="comment-new">
           <blockquote>{pendingSelection.quote}</blockquote>
           <textarea

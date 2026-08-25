@@ -15,10 +15,18 @@ import { PlanStreamClient, type WSEvent } from './api/ws'
 import { createSession, advanceToActing } from './api/sessions'
 import { createComment, listComments } from './api/comments'
 import { mergeReviews } from './api/merge'
+import { getPlan, listPlans } from './api/plans'
+import type {
+  CommentResponse,
+  MergerResult,
+  PlanDocument,
+  PlanSummary,
+} from '@/types/shared'
 import { InitForm } from './components/InitForm'
 import { ActionButton } from './components/ActionButton'
 import { ErrorBanner } from './components/ErrorBanner'
 import { CommentThreadPanel } from './components/CommentThreadPanel'
+import { MergeResultDrawer } from './components/MergeResultDrawer'
 import './App.css'
 
 function eventToAction(event: WSEvent) {
@@ -50,23 +58,40 @@ function findRangeByQuote(
   return result
 }
 
+// merge 抽屉状态：决策结果 + 新版本快照（prevPlan 在 ref，关抽屉即弃）
+interface DrawerState {
+  result: MergerResult
+  planChanged: boolean
+  planVersion: number
+  plan: PlanDocument
+}
+
 export default function App() {
   const [state, dispatch] = useReducer(sessionReducer, { status: 'idle' } as SessionState)
   const clientRef = useRef<PlanStreamClient | null>(null)
   const editorRef = useRef<Editor | null>(null)
   const [pendingSel, setPendingSel] = useState<SelectionSnapshot | null>(null)
   const [mergeBusy, setMergeBusy] = useState(false)
+  // ===== M2-13：版本历史浏览 =====
+  const prevPlanRef = useRef<PlanDocument | null>(null)
+  const [drawer, setDrawer] = useState<DrawerState | null>(null)
+  const [versions, setVersions] = useState<PlanSummary[]>([])
+  const [viewingVersion, setViewingVersion] = useState<number | null>(null) // null = 当前版本
+  const [historicPlan, setHistoricPlan] = useState<PlanDocument | null>(null)
+  const [historicComments, setHistoricComments] = useState<CommentResponse[]>([])
   const reviewPlanVersion = state.status === 'review' ? state.planVersion : 0
 
-  // 稳定 doc 引用：只在 plan 变化时重算，避免每次 render 触发编辑器 setContent 重置选区/滚动。
+  // 稳定 doc 引用：只在展示文档变化时重算，避免每次 render 触发编辑器 setContent 重置选区/滚动。
   const currentPlan =
     state.status === 'streaming' || state.status === 'review' ? state.plan : null
+  const browsingHistory = viewingVersion !== null && historicPlan !== null
+  const displayPlan = browsingHistory ? historicPlan : currentPlan
   const tiptapDoc = useMemo(
     () =>
-      currentPlan
-        ? planToTiptapDoc(currentPlan)
+      displayPlan
+        ? planToTiptapDoc(displayPlan)
         : { type: 'doc', content: [] },
-    [currentPlan],
+    [displayPlan],
   )
 
   // 进入 review 或 planVersion 变化（merge 落 v{N+1}）时拉评论
@@ -79,10 +104,22 @@ export default function App() {
     })
   }, [state.status, reviewPlanVersion])
 
+  // 进入 review 或版本变化（merge 落 v{N+1}）时刷新版本列表
+  useEffect(() => {
+    if (state.status !== 'review') return
+    listPlans(state.sessionId)
+      .then((r) => setVersions(r.versions))
+      .catch(() => {
+        // 版本列表拉取失败不阻塞主流程，选择器不显示即可
+      })
+  }, [state.status, reviewPlanVersion])
+
   // 回放未在 editor 中应用的 anchor mark（页面刷新后从 DB 拉回的评论需要重新打 mark）
   const commentsLen = state.status === 'review' ? state.comments.length : 0
   useEffect(() => {
     if (state.status !== 'review' || !editorRef.current) return
+    // 历史版本只读浏览时不打 anchor mark（当前版本的评论属于另一份文档）
+    if (viewingVersion !== null) return
     const editor = editorRef.current
     const existingAnchors = new Set<string>()
     editor.state.doc.descendants((node: ProseMirrorNode) => {
@@ -101,7 +138,7 @@ export default function App() {
         resolved: c.resolved,
       })
     }
-  }, [state.status, commentsLen])
+  }, [state.status, commentsLen, viewingVersion])
 
   const handleStart = async (initRequest: string, adapterId: string) => {
     try {
@@ -188,22 +225,23 @@ export default function App() {
     setMergeBusy(true)
     try {
       const result = await mergeReviews(state.sessionId)
-      const accepted = result.merger_result.actions
-        .filter((a) => a.decision === 'accept' || a.decision === 'partial').length
-      const rejected = result.merger_result.actions
-        .filter((a) => a.decision === 'reject').length
-      if (!result.plan_changed) {
-        // 全 reject：不落新版本（决策 §13-2.A），弹窗提醒，comments 保持 unresolved
-        alert(`All ${rejected} comments rejected, plan unchanged`)
-        return
+      prevPlanRef.current = state.plan
+      if (result.plan_changed) {
+        dispatch({
+          type: 'MERGE_COMPLETED',
+          planVersion: result.plan_version,
+          plan: result.plan,
+        })
       }
-      dispatch({
-        type: 'MERGE_COMPLETED',
+      // 抽屉替换 alert（决策 §13-1.A）；全 reject 也照常打开，展示决策与 "Plan unchanged"
+      setViewingVersion(null)
+      setHistoricPlan(null)
+      setDrawer({
+        result: result.merger_result,
+        planChanged: result.plan_changed,
         planVersion: result.plan_version,
         plan: result.plan,
       })
-      // 简单提示；TODO Task 13 用抽屉展示完整 merger_result（决策 §13-1.A）
-      alert(`Plan v${result.plan_version}: ${accepted} accepted, ${rejected} rejected`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'merge_failed'
       dispatch({ type: 'WS_ERROR', code: 'merge_failed', message: msg })
@@ -211,6 +249,31 @@ export default function App() {
       setMergeBusy(false)
     }
   }, [state, mergeBusy])
+
+  const handleVersionChange = useCallback(async (value: string) => {
+    if (state.status !== 'review') return
+    setDrawer(null) // 抽屉与版本浏览互斥（设计 §6）
+    if (value === 'current') {
+      setViewingVersion(null)
+      setHistoricPlan(null)
+      setHistoricComments([])
+      return
+    }
+    const version = Number(value)
+    setViewingVersion(version)
+    try {
+      const [plan, comments] = await Promise.all([
+        getPlan(state.sessionId, version),
+        listComments(state.sessionId, version),
+      ])
+      setHistoricPlan(plan)
+      setHistoricComments(comments)
+    } catch {
+      // 历史版本拉取失败退回当前版本
+      setViewingVersion(null)
+      setHistoricPlan(null)
+    }
+  }, [state])
 
   const handleJumpToAnchor = useCallback((anchorId: string) => {
     if (!editorRef.current) return
@@ -241,7 +304,11 @@ export default function App() {
     state.status === 'streaming' || state.status === 'review'
       ? state.plan.nodes
       : []
-  const comments = isReview ? state.comments : []
+  const comments = isReview
+    ? browsingHistory
+      ? historicComments
+      : state.comments
+    : []
 
   const contextValue: SessionContextValue = { sessionId, dispatch }
 
@@ -259,9 +326,27 @@ export default function App() {
           {hasPlan && (
             <div className="review-layout">
               <div className="review-editor">
+                {isReview && versions.length > 1 && (
+                  <label className="version-picker">
+                    Version{' '}
+                    <select
+                      value={viewingVersion ?? 'current'}
+                      onChange={(e) => handleVersionChange(e.target.value)}
+                    >
+                      {versions.map((v) => (
+                        <option key={v.version} value={v.version}>
+                          v{v.version}
+                          {v.version === state.planVersion ? ' (current)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <PlanDocEditor
                   doc={tiptapDoc}
-                  onRequestAddComment={isReview ? handleRequestAddComment : undefined}
+                  onRequestAddComment={
+                    isReview && !browsingHistory ? handleRequestAddComment : undefined
+                  }
                   editorRef={editorRef}
                 />
               </div>
@@ -272,12 +357,24 @@ export default function App() {
                   onCancel={() => setPendingSel(null)}
                   onSubmit={handleSubmitComment}
                   onJumpToAnchor={handleJumpToAnchor}
-                  onApplyReviews={handleApplyReviews}
+                  onApplyReviews={browsingHistory ? undefined : handleApplyReviews}
                   mergeBusy={mergeBusy}
                   unresolvedCount={comments.filter((c) => !c.resolved).length}
+                  readonly={browsingHistory}
                 />
               )}
             </div>
+          )}
+
+          {drawer && (
+            <MergeResultDrawer
+              result={drawer.result}
+              planChanged={drawer.planChanged}
+              newVersion={drawer.planVersion}
+              prevPlan={prevPlanRef.current}
+              newPlan={drawer.plan}
+              onClose={() => setDrawer(null)}
+            />
           )}
 
           {isReview && (
