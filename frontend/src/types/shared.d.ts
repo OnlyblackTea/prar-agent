@@ -38,3 +38,22 @@ export interface CommentResponse {
   resolved: boolean
   created_at: string
 }
+
+export interface CriticAction {
+  node_index: number
+  action: string
+  reason: string
+  replacement: PlanNode | null
+}
+
+export interface MergerAction {
+  comment_id: string
+  decision: 'accept' | 'reject' | 'partial'
+  reason: string
+  patch: CriticAction | null
+}
+
+export interface MergerResult {
+  actions: MergerAction[]
+  overall_comment: string
+}

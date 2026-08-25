@@ -409,6 +409,28 @@ main {
   margin-bottom: 1rem;
 }
 
+.apply-reviews-btn {
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  margin-bottom: 0.85rem;
+  border: 1px solid #6366f1;
+  border-radius: 6px;
+  background: #6366f1;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.apply-reviews-btn:hover:not(:disabled) {
+  background: #4f46e5;
+}
+
+.apply-reviews-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .comment-new {
   background: #eef2ff;
   border: 1px solid #c7d2fe;
@@ -512,4 +534,8 @@ main {
 .comment-list li time {
   font-size: 0.75rem;
   color: #9ca3af;
+}
+
+.comment-list li.comment-resolved {
+  opacity: 0.5;
 }

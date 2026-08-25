@@ -14,6 +14,7 @@ import { SessionContext, type SessionContextValue } from './state/SessionContext
 import { PlanStreamClient, type WSEvent } from './api/ws'
 import { createSession, advanceToActing } from './api/sessions'
 import { createComment, listComments } from './api/comments'
+import { mergeReviews } from './api/merge'
 import { InitForm } from './components/InitForm'
 import { ActionButton } from './components/ActionButton'
 import { ErrorBanner } from './components/ErrorBanner'
@@ -54,8 +55,10 @@ export default function App() {
   const clientRef = useRef<PlanStreamClient | null>(null)
   const editorRef = useRef<Editor | null>(null)
   const [pendingSel, setPendingSel] = useState<SelectionSnapshot | null>(null)
+  const [mergeBusy, setMergeBusy] = useState(false)
+  const reviewPlanVersion = state.status === 'review' ? state.planVersion : 0
 
-  // 进入 review 时拉评论
+  // 进入 review 或 planVersion 变化（merge 落 v{N+1}）时拉评论
   useEffect(() => {
     if (state.status !== 'review') return
     listComments(state.sessionId, state.planVersion).then((comments) => {
@@ -63,7 +66,7 @@ export default function App() {
     }).catch(() => {
       // no comments yet — fine
     })
-  }, [state.status])
+  }, [state.status, reviewPlanVersion])
 
   // 回放未在 editor 中应用的 anchor mark（页面刷新后从 DB 拉回的评论需要重新打 mark）
   const commentsLen = state.status === 'review' ? state.comments.length : 0
@@ -166,6 +169,35 @@ export default function App() {
     }
   }, [pendingSel, state])
 
+  const handleApplyReviews = useCallback(async () => {
+    if (state.status !== 'review' || mergeBusy) return
+    setMergeBusy(true)
+    try {
+      const result = await mergeReviews(state.sessionId)
+      const accepted = result.merger_result.actions
+        .filter((a) => a.decision === 'accept' || a.decision === 'partial').length
+      const rejected = result.merger_result.actions
+        .filter((a) => a.decision === 'reject').length
+      if (!result.plan_changed) {
+        // 全 reject：不落新版本（决策 §13-2.A），弹窗提醒，comments 保持 unresolved
+        alert(`All ${rejected} comments rejected, plan unchanged`)
+        return
+      }
+      dispatch({
+        type: 'MERGE_COMPLETED',
+        planVersion: result.plan_version,
+        plan: result.plan,
+      })
+      // 简单提示；TODO Task 13 用抽屉展示完整 merger_result（决策 §13-1.A）
+      alert(`Plan v${result.plan_version}: ${accepted} accepted, ${rejected} rejected`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'merge_failed'
+      dispatch({ type: 'WS_ERROR', code: 'merge_failed', message: msg })
+    } finally {
+      setMergeBusy(false)
+    }
+  }, [state, mergeBusy])
+
   const handleJumpToAnchor = useCallback((anchorId: string) => {
     if (!editorRef.current) return
     const { doc } = editorRef.current.state
@@ -230,6 +262,9 @@ export default function App() {
                   onCancel={() => setPendingSel(null)}
                   onSubmit={handleSubmitComment}
                   onJumpToAnchor={handleJumpToAnchor}
+                  onApplyReviews={handleApplyReviews}
+                  mergeBusy={mergeBusy}
+                  unresolvedCount={comments.filter((c) => !c.resolved).length}
                 />
               )}
             </div>

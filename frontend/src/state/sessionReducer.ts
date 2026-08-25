@@ -26,6 +26,7 @@ export type SessionAction =
   | { type: 'ANSWER_DECISION'; id: string; answer: string }
   | { type: 'LOAD_COMMENTS'; comments: CommentResponse[] }
   | { type: 'ADD_COMMENT'; comment: CommentResponse }
+  | { type: 'MERGE_COMPLETED'; planVersion: number; plan: PlanDocument }
   | { type: 'RESET' }
 
 // ===== Reducer =====
@@ -96,6 +97,16 @@ export function sessionReducer(
       return {
         ...state,
         comments: [...state.comments, action.comment],
+      }
+
+    case 'MERGE_COMPLETED':
+      if (state.status !== 'review') return state
+      // comments 清空，等 App 的 useEffect 自动 listComments(v{N+1}) 补
+      return {
+        ...state,
+        planVersion: action.planVersion,
+        plan: action.plan,
+        comments: [],
       }
 
     case 'WS_ERROR':

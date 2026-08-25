@@ -187,6 +187,49 @@ describe('sessionReducer', () => {
     }
   })
 
+  it('MERGE_COMPLETED replaces plan and clears comments in review', () => {
+    const c: CommentResponse = {
+      id: 'c1',
+      session_id: 'sid',
+      plan_version: 1,
+      anchor_id: 'a1',
+      quote: 'hi',
+      quote_context: '',
+      body: 'comment',
+      resolved: true,
+      created_at: '2025-01-01T00:00:00Z',
+    }
+    const newPlan = { title: 'T2', summary: 'S2', nodes: [] }
+    const state = sessionReducer(
+      {
+        status: 'review',
+        sessionId: 'sid',
+        planVersion: 1,
+        plan: { title: 'T', summary: 'S', nodes: [] },
+        comments: [c],
+      },
+      { type: 'MERGE_COMPLETED', planVersion: 2, plan: newPlan },
+    )
+    expect(state.status).toBe('review')
+    if (state.status === 'review') {
+      expect(state.planVersion).toBe(2)
+      expect(state.plan).toEqual(newPlan)
+      expect(state.comments).toEqual([])
+    }
+  })
+
+  it('MERGE_COMPLETED is ignored outside review', () => {
+    const state = sessionReducer(
+      { status: 'connecting', sessionId: 'sid', planVersion: 0 },
+      {
+        type: 'MERGE_COMPLETED',
+        planVersion: 2,
+        plan: { title: 'T2', summary: 'S2', nodes: [] },
+      },
+    )
+    expect(state).toEqual({ status: 'connecting', sessionId: 'sid', planVersion: 0 })
+  })
+
   it('WS_ERROR sets error status', () => {
     const state = sessionReducer(
       { status: 'idle' },

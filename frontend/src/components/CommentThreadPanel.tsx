@@ -14,6 +14,9 @@ interface CommentThreadPanelProps {
   onCancel: () => void
   onSubmit: (body: string) => Promise<void>
   onJumpToAnchor: (anchorId: string) => void
+  onApplyReviews?: () => void
+  mergeBusy?: boolean
+  unresolvedCount?: number
 }
 
 export function CommentThreadPanel({
@@ -22,6 +25,9 @@ export function CommentThreadPanel({
   onCancel,
   onSubmit,
   onJumpToAnchor,
+  onApplyReviews,
+  mergeBusy,
+  unresolvedCount,
 }: CommentThreadPanelProps) {
   const [body, setBody] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -40,6 +46,15 @@ export function CommentThreadPanel({
   return (
     <aside className="comment-panel" data-testid="comment-panel">
       <h3>Comments</h3>
+      {onApplyReviews && (
+        <button
+          className="apply-reviews-btn"
+          onClick={onApplyReviews}
+          disabled={mergeBusy || unresolvedCount === 0}
+        >
+          {mergeBusy ? 'Merging...' : `Apply Reviews (${unresolvedCount})`}
+        </button>
+      )}
       {pendingSelection && (
         <div className="comment-new">
           <blockquote>{pendingSelection.quote}</blockquote>
@@ -64,7 +79,11 @@ export function CommentThreadPanel({
       )}
       <ul className="comment-list">
         {comments.map((c) => (
-          <li key={c.id} onClick={() => onJumpToAnchor(c.anchor_id)}>
+          <li
+            key={c.id}
+            className={c.resolved ? 'comment-resolved' : undefined}
+            onClick={() => onJumpToAnchor(c.anchor_id)}
+          >
             <blockquote>{c.quote}</blockquote>
             <p>{c.body}</p>
             <time>{new Date(c.created_at).toLocaleString()}</time>
