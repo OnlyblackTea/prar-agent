@@ -86,6 +86,29 @@ class SessionService:
             raise ValueError(f"No plan for session {session_id}")
         return plan
 
+    async def list_plans(
+        self, session_id: UUID,
+    ) -> tuple[models.Session, list[models.Plan]]:
+        """全版本历史（升序），供前端版本选择器；无 plan 返回空列表。"""
+        from sqlalchemy import select
+
+        s = await self.get(session_id)
+        stmt = (
+            select(models.Plan)
+            .where(models.Plan.session_id == session_id)
+            .order_by(models.Plan.version.asc())
+        )
+        result = await self._db.execute(stmt)
+        return s, list(result.scalars().all())
+
+    async def get_plan(self, session_id: UUID, version: int) -> models.Plan:
+        """按版本取 plan（Task 13 公开入口）；版本不存在报专用错码。"""
+        await self.get(session_id)
+        try:
+            return await self._get_plan(session_id, version)
+        except ValueError as e:
+            raise ValueError("plan_version_not_found") from e
+
     async def answer_decision(
         self, *, session_id: UUID, decision_id: str, answer: str,
     ) -> bool:

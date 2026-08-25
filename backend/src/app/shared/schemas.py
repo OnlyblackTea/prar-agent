@@ -10,6 +10,7 @@ from app.api.adapters import (
     ModelAdapterResponse,
     ModelAdapterUpdate,
 )
+from app.api.sessions import PlanListResponse, PlanSummary
 from app.core.comment_schemas import CommentCreate, CommentResponse
 from app.core.merger_schemas import MergerAction, MergerResult
 from app.core.plan_schemas import CriticResult, PlanDocument
@@ -26,4 +27,6 @@ SHARED_SCHEMAS: list[type] = [
     CommentResponse,
     MergerAction,
     MergerResult,
+    PlanSummary,
+    PlanListResponse,
 ]

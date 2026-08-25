@@ -1,5 +1,6 @@
-"""Session CRUD + Decision 答题 + 推进阶段 + Review Merge API。"""
+"""Session CRUD + Decision 答题 + 推进阶段 + Review Merge + 版本查询 API。"""
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -41,6 +42,18 @@ class PlanResponse(BaseModel):
     document: dict
 
     model_config = {"from_attributes": True}
+
+
+class PlanSummary(BaseModel):
+    version: int
+    node_count: int
+    created_at: datetime
+
+
+class PlanListResponse(BaseModel):
+    session_id: UUID
+    current_version: int
+    versions: list[PlanSummary]
 
 
 class AnswerDecisionRequest(BaseModel):
@@ -119,6 +132,44 @@ async def get_current_plan(
 ) -> PlanResponse:
     try:
         plan = await service.get_current_plan(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return PlanResponse.model_validate(plan)
+
+
+@router.get("/{session_id}/plans", response_model=PlanListResponse)
+async def list_plans(
+    session_id: UUID,
+    service: SessionService = Depends(get_session_service),
+) -> PlanListResponse:
+    try:
+        s, plans = await service.list_plans(session_id)
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail="session_not_found") from e
+    return PlanListResponse(
+        session_id=s.id,
+        current_version=s.current_plan_version,
+        versions=[
+            PlanSummary(
+                version=p.version,
+                node_count=len(p.document.get("nodes", [])),
+                created_at=p.created_at,
+            )
+            for p in plans
+        ],
+    )
+
+
+@router.get("/{session_id}/plans/{version}", response_model=PlanResponse)
+async def get_plan_version(
+    session_id: UUID,
+    version: int,
+    service: SessionService = Depends(get_session_service),
+) -> PlanResponse:
+    try:
+        plan = await service.get_plan(session_id, version)
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail="session_not_found") from e
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     return PlanResponse.model_validate(plan)

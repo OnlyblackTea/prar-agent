@@ -676,6 +676,57 @@
       },
       "title": "MergerResult",
       "type": "object"
+    },
+    "PlanSummary": {
+      "properties": {
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "node_count": {
+          "title": "Node Count",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "node_count",
+        "created_at"
+      ],
+      "title": "PlanSummary",
+      "type": "object"
+    },
+    "PlanListResponse": {
+      "properties": {
+        "session_id": {
+          "format": "uuid",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "current_version": {
+          "title": "Current Version",
+          "type": "integer"
+        },
+        "versions": {
+          "items": {
+            "$ref": "#/$defs/PlanSummary"
+          },
+          "title": "Versions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "session_id",
+        "current_version",
+        "versions"
+      ],
+      "title": "PlanListResponse",
+      "type": "object"
     }
   }
 }
