@@ -546,6 +546,27 @@ main {
   opacity: 0.5;
 }
 
+/* ===== M2-14：悬空评论（回放失败，原文已变更） ===== */
+
+.comment-list li.comment-dangling {
+  border-style: dashed;
+  border-color: #f59e0b;
+  cursor: default;
+  opacity: 0.85;
+}
+
+.comment-list li.comment-dangling:hover {
+  box-shadow: none;
+}
+
+.comment-list li.comment-dangling .comment-dangling-hint {
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+}
+
 /* ===== Version Picker ===== */
 
 .version-picker {

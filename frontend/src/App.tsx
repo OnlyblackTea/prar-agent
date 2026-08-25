@@ -16,6 +16,7 @@ import { createSession, advanceToActing } from './api/sessions'
 import { createComment, listComments } from './api/comments'
 import { mergeReviews } from './api/merge'
 import { getPlan, listPlans } from './api/plans'
+import { findAnchorRange } from './editor/anchorMatch'
 import type {
   CommentResponse,
   MergerResult,
@@ -44,20 +45,6 @@ function eventToAction(event: WSEvent) {
   }
 }
 
-// 在 plan doc 中按 quote 文本第一次出现找位置；M2 简化版，Task 14 升级 fuzzy match
-function findRangeByQuote(
-  doc: ProseMirrorNode,
-  quote: string,
-): { from: number; to: number } | null {
-  let result: { from: number; to: number } | null = null
-  doc.descendants((node, pos) => {
-    if (result || !node.isText || !node.text) return
-    const idx = node.text.indexOf(quote)
-    if (idx >= 0) result = { from: pos + idx, to: pos + idx + quote.length }
-  })
-  return result
-}
-
 // merge 抽屉状态：决策结果 + 新版本快照（prevPlan 在 ref，关抽屉即弃）
 interface DrawerState {
   result: MergerResult
@@ -65,6 +52,9 @@ interface DrawerState {
   planVersion: number
   plan: PlanDocument
 }
+
+/** 历史版本只读浏览时传入的空悬空集合（设计 §3.4：同版本精确匹配必然命中） */
+const EMPTY_DANGLING: ReadonlySet<string> = new Set()
 
 export default function App() {
   const [state, dispatch] = useReducer(sessionReducer, { status: 'idle' } as SessionState)
@@ -79,6 +69,8 @@ export default function App() {
   const [viewingVersion, setViewingVersion] = useState<number | null>(null) // null = 当前版本
   const [historicPlan, setHistoricPlan] = useState<PlanDocument | null>(null)
   const [historicComments, setHistoricComments] = useState<CommentResponse[]>([])
+  // ===== M2-14：回放悬空评论的 anchor_id 集合（设计 §3.3） =====
+  const [dangling, setDangling] = useState<Set<string>>(new Set())
   const reviewPlanVersion = state.status === 'review' ? state.planVersion : 0
 
   // 稳定 doc 引用：只在展示文档变化时重算，避免每次 render 触发编辑器 setContent 重置选区/滚动。
@@ -114,7 +106,8 @@ export default function App() {
       })
   }, [state.status, reviewPlanVersion])
 
-  // 回放未在 editor 中应用的 anchor mark（页面刷新后从 DB 拉回的评论需要重新打 mark）
+  // 回放未在 editor 中应用的 anchor mark（页面刷新后从 DB 拉回的评论需要重新打 mark）；
+  // M2-14：精确匹配升级 fuzzy 回源，置信度 < 0.7 的评论进悬空集合（设计 §3.3）
   const commentsLen = state.status === 'review' ? state.comments.length : 0
   useEffect(() => {
     if (state.status !== 'review' || !editorRef.current) return
@@ -129,15 +122,20 @@ export default function App() {
         }
       })
     })
+    const nextDangling = new Set<string>()
     for (const c of state.comments) {
       if (existingAnchors.has(c.anchor_id)) continue
-      const range = findRangeByQuote(editor.state.doc, c.quote)
-      if (!range) continue
-      applyAnchorMark(editor, range.from, range.to, {
-        anchor_id: c.anchor_id,
-        resolved: c.resolved,
-      })
+      const match = findAnchorRange(editor.state.doc, c.quote, c.quote_context)
+      if (match) {
+        applyAnchorMark(editor, match.from, match.to, {
+          anchor_id: c.anchor_id,
+          resolved: c.resolved,
+        })
+      } else {
+        nextDangling.add(c.anchor_id)
+      }
     }
+    setDangling(nextDangling)
   }, [state.status, commentsLen, viewingVersion])
 
   const handleStart = async (initRequest: string, adapterId: string) => {
@@ -362,6 +360,7 @@ export default function App() {
                   mergeBusy={mergeBusy}
                   unresolvedCount={comments.filter((c) => !c.resolved).length}
                   readonly={browsingHistory}
+                  danglingIds={browsingHistory ? EMPTY_DANGLING : dangling}
                 />
               )}
             </div>

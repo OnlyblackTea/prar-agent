@@ -19,6 +19,8 @@ interface CommentThreadPanelProps {
   unresolvedCount?: number
   /** 历史版本只读浏览：禁新评论输入、禁 Apply（设计 §3.4） */
   readonly?: boolean
+  /** 回放失败（置信度 < 0.7）的评论，按 anchor_id 标识；悬空项显示提示并禁跳转（设计 §3.4） */
+  danglingIds?: ReadonlySet<string>
 }
 
 export function CommentThreadPanel({
@@ -31,6 +33,7 @@ export function CommentThreadPanel({
   mergeBusy,
   unresolvedCount,
   readonly = false,
+  danglingIds,
 }: CommentThreadPanelProps) {
   const [body, setBody] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -81,17 +84,32 @@ export function CommentThreadPanel({
         </div>
       )}
       <ul className="comment-list">
-        {comments.map((c) => (
-          <li
-            key={c.id}
-            className={c.resolved ? 'comment-resolved' : undefined}
-            onClick={() => onJumpToAnchor(c.anchor_id)}
-          >
-            <blockquote>{c.quote}</blockquote>
-            <p>{c.body}</p>
-            <time>{new Date(c.created_at).toLocaleString()}</time>
-          </li>
-        ))}
+        {comments.map((c) => {
+          const dangling = danglingIds?.has(c.anchor_id) ?? false
+          const className = [
+            c.resolved ? 'comment-resolved' : null,
+            dangling ? 'comment-dangling' : null,
+          ]
+            .filter(Boolean)
+            .join(' ')
+          return (
+            <li
+              key={c.id}
+              className={className || undefined}
+              onClick={() => {
+                // 悬空评论无锚点可跳（设计 §3.4）
+                if (!dangling) onJumpToAnchor(c.anchor_id)
+              }}
+            >
+              <blockquote>{c.quote}</blockquote>
+              {dangling && (
+                <p className="comment-dangling-hint">⚠ 原文已变更，锚点无法定位</p>
+              )}
+              <p>{c.body}</p>
+              <time>{new Date(c.created_at).toLocaleString()}</time>
+            </li>
+          )
+        })}
       </ul>
     </aside>
   )
