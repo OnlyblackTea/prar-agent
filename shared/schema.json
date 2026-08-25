@@ -612,6 +612,70 @@
       ],
       "title": "CommentResponse",
       "type": "object"
+    },
+    "MergerAction": {
+      "description": "对单条用户评论的处理结果。",
+      "properties": {
+        "comment_id": {
+          "description": "对应 comments.id",
+          "format": "uuid",
+          "title": "Comment Id",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "accept",
+            "reject",
+            "partial"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "reason": {
+          "description": "一句话解释为何此决策",
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "patch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CriticAction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "comment_id",
+        "decision",
+        "reason"
+      ],
+      "title": "MergerAction",
+      "type": "object"
+    },
+    "MergerResult": {
+      "description": "ReviewMerger LLM 输出。",
+      "properties": {
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/MergerAction"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "overall_comment": {
+          "default": "",
+          "description": "对整体修订的总评",
+          "title": "Overall Comment",
+          "type": "string"
+        }
+      },
+      "title": "MergerResult",
+      "type": "object"
     }
   }
 }

@@ -1,4 +1,4 @@
-"""Session CRUD + Decision 答题 + 推进阶段 API。"""
+"""Session CRUD + Decision 答题 + 推进阶段 + Review Merge API。"""
 
 from uuid import UUID
 
@@ -6,8 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.merger_schemas import MergerResult
+from app.core.plan_schemas import PlanDocument
 from app.core.state_machine import InvalidTransitionError
 from app.db.session import get_db
+from app.llm.router import LLMRouter
 from app.services.session_service import SessionNotFoundError, SessionService
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -57,6 +60,13 @@ class ErrorDetail(BaseModel):
     message: str
 
 
+class MergeResponse(BaseModel):
+    plan_version: int
+    plan: PlanDocument  # 新版本（或全 reject 时的原版本）完整 doc
+    merger_result: MergerResult
+    plan_changed: bool  # accepted_ids 非空时为 True
+
+
 # ===== Dependency =====
 
 
@@ -64,6 +74,12 @@ async def get_session_service(
     db: AsyncSession = Depends(get_db),
 ) -> SessionService:
     return SessionService(db)
+
+
+def get_router_dep() -> LLMRouter:
+    """复用 ws_plan.get_router 的 lru_cache 单例（M1-10a-fixup 已建立）。"""
+    from app.api.ws_plan import get_router
+    return get_router()
 
 
 # ===== Routes =====
@@ -155,3 +171,30 @@ async def advance_to_acting(
             status_code=409, detail="illegal_phase_transition",
         ) from e
     return AdvanceToActingResponse(phase=s.phase)
+
+
+@router.post("/{session_id}/merge", response_model=MergeResponse)
+async def merge_plan_endpoint(
+    session_id: UUID,
+    service: SessionService = Depends(get_session_service),
+    llm_router: LLMRouter = Depends(get_router_dep),
+) -> MergeResponse:
+    try:
+        new_plan_doc, merger_result, new_version = await service.merge_plan(
+            session_id=session_id, router=llm_router,
+        )
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail="session_not_found") from e
+    except ValueError as e:
+        msg = str(e)
+        status = 409 if msg == "phase_not_review" else 400
+        raise HTTPException(status_code=status, detail=msg) from e
+    # LLM 错误向上冒：transport / structured_output → 500
+    return MergeResponse(
+        plan_version=new_version,
+        plan=new_plan_doc,
+        merger_result=merger_result,
+        plan_changed=any(
+            a.decision in ("accept", "partial") for a in merger_result.actions
+        ),
+    )

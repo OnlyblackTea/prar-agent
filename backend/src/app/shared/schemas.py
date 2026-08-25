@@ -11,6 +11,7 @@ from app.api.adapters import (
     ModelAdapterUpdate,
 )
 from app.core.comment_schemas import CommentCreate, CommentResponse
+from app.core.merger_schemas import MergerAction, MergerResult
 from app.core.plan_schemas import CriticResult, PlanDocument
 from app.health import HealthResponse
 
@@ -23,4 +24,6 @@ SHARED_SCHEMAS: list[type] = [
     CriticResult,
     CommentCreate,
     CommentResponse,
+    MergerAction,
+    MergerResult,
 ]

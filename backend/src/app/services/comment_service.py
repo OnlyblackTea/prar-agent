@@ -1,7 +1,7 @@
 """Comment CRUD + 写入前置校验。"""
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.comment_schemas import CommentCreate
@@ -77,6 +77,31 @@ class CommentService:
         if c is None:
             raise CommentNotFoundError(str(comment_id))
         return c
+
+    async def list_unresolved(
+        self, *, session_id: UUID, plan_version: int,
+    ) -> list[Comment]:
+        """按 session + plan_version 拉 resolved=false 的评论。"""
+        stmt = (
+            select(Comment)
+            .where(Comment.session_id == session_id)
+            .where(Comment.plan_version == plan_version)
+            .where(Comment.resolved.is_(False))
+            .order_by(Comment.created_at.asc())
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def mark_resolved(self, comment_ids: list[UUID]) -> None:
+        """批量标 resolved=true。id 不存在时 UPDATE 自然 no-op。"""
+        if not comment_ids:
+            return
+        stmt = (
+            update(Comment)
+            .where(Comment.id.in_(comment_ids))
+            .values(resolved=True)
+        )
+        await self._db.execute(stmt)
 
     async def _get_plan(self, session_id: UUID, version: int) -> Plan:
         stmt = (
