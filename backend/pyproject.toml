@@ -16,6 +16,7 @@ dependencies = [
     "openai>=1.55.0",
     "instructor>=1.7.0",
     "structlog>=24.0.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [dependency-groups]

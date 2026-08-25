@@ -1,6 +1,12 @@
 from functools import lru_cache
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 让 .env 的变量进 os.environ（override=False 不覆盖真环境变量）：
+# AdapterService.resolve 与 SDK 隐式读取都依赖进程环境变量，
+# pydantic settings 只载入 Settings 实例不导出。
+load_dotenv()
 
 
 class Settings(BaseSettings):
