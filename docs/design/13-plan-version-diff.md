@@ -1,6 +1,6 @@
 # 13. Plan 版本管理 + 前端 diff 视图
 
-> **状态**：APPROVED（2026-08-25）；13a/13b 已实施，待 E2E 冒烟
+> **状态**：APPROVED（2026-08-25）；13a/13b 已实施，E2E 冒烟通过
 > **依赖**：Task 12（merge 落 plan v{N+1}、`MERGE_COMPLETED`、alert 临时方案）、Task 11（comments 按 plan_version 查询）
 > **被依赖**：Task 14（anchor 跨版本回源时复用历史版本查询 API）
 > **commit 范围**：单设计文档，拆 2 个 commit（13a 后端 / 13b 前端），设计文档随 13a 同入

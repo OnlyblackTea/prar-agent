@@ -253,13 +253,14 @@ export default function App() {
   const handleVersionChange = useCallback(async (value: string) => {
     if (state.status !== 'review') return
     setDrawer(null) // 抽屉与版本浏览互斥（设计 §6）
-    if (value === 'current') {
+    const version = Number(value)
+    // 选中当前版本 = 切回 "current"：恢复 reducer 状态（设计 §3.4）
+    if (value === 'current' || version === state.planVersion) {
       setViewingVersion(null)
       setHistoricPlan(null)
       setHistoricComments([])
       return
     }
-    const version = Number(value)
     setViewingVersion(version)
     try {
       const [plan, comments] = await Promise.all([
