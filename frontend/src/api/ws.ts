@@ -37,11 +37,13 @@ export class PlanStreamClient {
     sessionId: string,
     onEvent: (event: WSEvent) => void,
     onClose: () => void,
+    onOpen?: () => void,
   ): void {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${protocol}//${window.location.host}/api/ws/sessions/${sessionId}/plan`
     this.ws = new WebSocket(url)
 
+    this.ws.onopen = () => onOpen?.()
     this.ws.onmessage = (e: MessageEvent) => {
       try {
         onEvent(JSON.parse(e.data as string) as WSEvent)

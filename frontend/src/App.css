@@ -33,6 +33,10 @@ main {
 }
 
 /* Tiptap editor styling */
+.plan-doc-editor {
+  position: relative;
+}
+
 .plan-doc-editor .ProseMirror {
   outline: none;
   min-height: 240px;
@@ -370,6 +374,8 @@ main {
 /* ===== Bubble Menu ===== */
 
 .bubble-add-comment {
+  position: absolute;
+  z-index: 20;
   background: #6366f1;
   color: #fff;
   border: none;

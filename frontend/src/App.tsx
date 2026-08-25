@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { Editor } from '@tiptap/react'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { PlanDocEditor, type SelectionSnapshot } from './editor/PlanDocEditor'
@@ -58,6 +58,17 @@ export default function App() {
   const [mergeBusy, setMergeBusy] = useState(false)
   const reviewPlanVersion = state.status === 'review' ? state.planVersion : 0
 
+  // 稳定 doc 引用：只在 plan 变化时重算，避免每次 render 触发编辑器 setContent 重置选区/滚动。
+  const currentPlan =
+    state.status === 'streaming' || state.status === 'review' ? state.plan : null
+  const tiptapDoc = useMemo(
+    () =>
+      currentPlan
+        ? planToTiptapDoc(currentPlan)
+        : { type: 'doc', content: [] },
+    [currentPlan],
+  )
+
   // 进入 review 或 planVersion 变化（merge 落 v{N+1}）时拉评论
   useEffect(() => {
     if (state.status !== 'review') return
@@ -106,11 +117,14 @@ export default function App() {
         session.id,
         (event) => dispatch(eventToAction(event)),
         () => { /* WS closed */ },
+        () => {
+          // CONNECTING 时 send 会抛错，必须等 onopen 再发 generate 帧
+          client.sendGenerate({
+            init_request: initRequest,
+            adapter_id: adapterId,
+          })
+        },
       )
-      client.sendGenerate({
-        init_request: initRequest,
-        adapter_id: adapterId,
-      })
     } catch (err) {
       dispatch({
         type: 'WS_ERROR',
@@ -246,11 +260,7 @@ export default function App() {
             <div className="review-layout">
               <div className="review-editor">
                 <PlanDocEditor
-                  doc={planToTiptapDoc(
-                    state.status === 'streaming' || state.status === 'review'
-                      ? state.plan
-                      : { title: '', summary: '', nodes: [] },
-                  )}
+                  doc={tiptapDoc}
                   onRequestAddComment={isReview ? handleRequestAddComment : undefined}
                   editorRef={editorRef}
                 />
