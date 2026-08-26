@@ -1,4 +1,5 @@
 """Comment CRUD + 写入前置校验。"""
+from typing import Any, cast
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -28,7 +29,7 @@ class CommentService:
         session = await self._db.get(Session, session_id)
         if session is None:
             from app.services.session_service import SessionNotFoundError
-            raise SessionNotFoundError(str(session_id))
+            raise SessionNotFoundError(session_id)
 
         if payload.plan_version > session.current_plan_version:
             raise ValueError("invalid_plan_version")
@@ -116,7 +117,7 @@ class CommentService:
         return plan
 
 
-def _quote_in_plan(quote: str, document: dict) -> bool:
+def _quote_in_plan(quote: str, document: dict[str, Any]) -> bool:
     """把 plan document 全部 text 拼起来判断 quote 是否子串。
 
     粗粒度但够用：Task 14 才上 fuzzy match。
@@ -126,10 +127,10 @@ def _quote_in_plan(quote: str, document: dict) -> bool:
     return quote in full_text
 
 
-def _extract_text(node: dict) -> str:
+def _extract_text(node: dict[str, Any]) -> str:
     """从 plan node 抽 text 字段。"""
     if "text" in node:
-        return node["text"]
+        return cast(str, node["text"])
     parts = [
         node.get(k, "")
         for k in ("question", "term", "definition", "description")

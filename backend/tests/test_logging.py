@@ -2,6 +2,7 @@
 
 import json
 import logging
+from collections.abc import Iterator
 from io import StringIO
 
 import pytest
@@ -16,7 +17,7 @@ from app.core.logging import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_logging() -> None:
+def _reset_logging() -> Iterator[None]:
     """每次测试后清理 stdlib logging 状态，避免测试间污染。
 
     structlog 不提供 reset_config；本模块测试均显式调用 setup_logging，

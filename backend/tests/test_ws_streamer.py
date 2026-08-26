@@ -1,17 +1,20 @@
 """ws_streamer 单元测试。"""
 
+from typing import Any
+
 from app.core.plan_schemas import (
     GlossaryNode,
     HeadingNode,
     ParagraphNode,
     PlanDocument,
+    PlanNode,
     StepNode,
 )
 from app.core.ws_streamer import stream_plan
 
 
-async def _collect(plan: PlanDocument, session_id: str = "sid-1") -> list[dict]:
-    events: list[dict] = []
+async def _collect(plan: PlanDocument, session_id: str = "sid-1") -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
     async for event in stream_plan(plan, session_id):
         events.append(event)
     return events
@@ -69,7 +72,7 @@ async def test_stream_plan_empty_nodes() -> None:
 
 
 async def test_stream_plan_node_content_matches_input() -> None:
-    nodes = [
+    nodes: list[PlanNode] = [
         HeadingNode(level=2, text="H2"),
         GlossaryNode(term="API", definition="Application Programming Interface"),
     ]

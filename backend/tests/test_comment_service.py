@@ -1,5 +1,6 @@
 """CommentService 单元测试 — 全部 mock AsyncSession。"""
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -16,7 +17,7 @@ from app.services.comment_service import (
 from app.services.session_service import SessionNotFoundError
 
 
-def make_session(**overrides) -> Session:
+def make_session(**overrides: Any) -> Session:
     defaults = {
         "id": uuid4(),
         "init_request": "test",
@@ -34,7 +35,7 @@ def make_session(**overrides) -> Session:
     return s
 
 
-def make_comment_row(**overrides) -> Comment:
+def make_comment_row(**overrides: Any) -> Comment:
     defaults = {
         "id": uuid4(),
         "session_id": uuid4(),
@@ -54,7 +55,7 @@ def make_comment_row(**overrides) -> Comment:
 
 
 class TestCommentServiceCreate:
-    async def test_session_not_found(self):
+    async def test_session_not_found(self) -> None:
         db = AsyncMock()
         db.get.return_value = None
         svc = CommentService(db)
@@ -71,7 +72,7 @@ class TestCommentServiceCreate:
                 ),
             )
 
-    async def test_invalid_plan_version_too_high(self):
+    async def test_invalid_plan_version_too_high(self) -> None:
         db = AsyncMock()
         session = make_session(current_plan_version=1)
         db.get.return_value = session
@@ -89,7 +90,7 @@ class TestCommentServiceCreate:
                 ),
             )
 
-    async def test_phase_not_review(self):
+    async def test_phase_not_review(self) -> None:
         db = AsyncMock()
         session = make_session(phase="acting")
         db.get.return_value = session
@@ -107,7 +108,7 @@ class TestCommentServiceCreate:
                 ),
             )
 
-    async def test_quote_not_found_in_plan(self):
+    async def test_quote_not_found_in_plan(self) -> None:
         db = AsyncMock()
         session = make_session()
         db.get.return_value = session
@@ -115,11 +116,11 @@ class TestCommentServiceCreate:
         plan = MagicMock(spec=Plan)
         plan.document = {"nodes": [{"type": "paragraph", "text": "nothing relevant"}]}
 
-        async def mock_get_plan(*args, **kwargs):
+        async def mock_get_plan(*args: Any, **kwargs: Any) -> MagicMock:
             return plan
 
         svc = CommentService(db)
-        svc._get_plan = mock_get_plan  # type: ignore[assignment]
+        svc._get_plan = mock_get_plan  # type: ignore[method-assign]
 
         with pytest.raises(ValueError, match="quote_not_found_in_plan"):
             await svc.create(
@@ -133,7 +134,7 @@ class TestCommentServiceCreate:
                 ),
             )
 
-    async def test_create_success(self):
+    async def test_create_success(self) -> None:
         db = AsyncMock()
         session = make_session()
         db.get.return_value = session
@@ -145,11 +146,11 @@ class TestCommentServiceCreate:
             ],
         }
 
-        async def mock_get_plan(*args, **kwargs):
+        async def mock_get_plan(*args: Any, **kwargs: Any) -> MagicMock:
             return plan
 
         svc = CommentService(db)
-        svc._get_plan = mock_get_plan  # type: ignore[assignment]
+        svc._get_plan = mock_get_plan  # type: ignore[method-assign]
 
         payload = CommentCreate(
             anchor_id="a1",
@@ -167,7 +168,7 @@ class TestCommentServiceCreate:
 
 
 class TestCommentServiceList:
-    async def test_list_by_version(self):
+    async def test_list_by_version(self) -> None:
         db = AsyncMock()
         c1 = make_comment_row(created_at=datetime(2025, 1, 1, tzinfo=UTC))
         c2 = make_comment_row(created_at=datetime(2025, 1, 2, tzinfo=UTC))
@@ -186,7 +187,7 @@ class TestCommentServiceList:
 
 
 class TestCommentServiceGet:
-    async def test_get_not_found(self):
+    async def test_get_not_found(self) -> None:
         db = AsyncMock()
         db.get.return_value = None
         svc = CommentService(db)
@@ -194,7 +195,7 @@ class TestCommentServiceGet:
         with pytest.raises(CommentNotFoundError):
             await svc.get(uuid4())
 
-    async def test_get_success(self):
+    async def test_get_success(self) -> None:
         db = AsyncMock()
         expected = make_comment_row()
         db.get.return_value = expected
@@ -205,15 +206,15 @@ class TestCommentServiceGet:
 
 
 class TestQuoteInPlan:
-    def test_quote_found_paragraph(self):
+    def test_quote_found_paragraph(self) -> None:
         doc = {"nodes": [{"type": "paragraph", "text": "hello world"}]}
         assert _quote_in_plan("hello", doc) is True
 
-    def test_quote_not_found(self):
+    def test_quote_not_found(self) -> None:
         doc = {"nodes": [{"type": "paragraph", "text": "foo bar"}]}
         assert _quote_in_plan("baz", doc) is False
 
-    def test_quote_across_nodes(self):
+    def test_quote_across_nodes(self) -> None:
         doc = {
             "nodes": [
                 {"type": "paragraph", "text": "line one"},
@@ -225,11 +226,11 @@ class TestQuoteInPlan:
 
 
 class TestExtractText:
-    def test_text_field(self):
+    def test_text_field(self) -> None:
         assert _extract_text({"text": "hello"}) == "hello"
 
-    def test_decision_fields(self):
+    def test_decision_fields(self) -> None:
         assert _extract_text({"question": "q?", "kind": "single_choice"}) == "q?"
 
-    def test_glossary_fields(self):
+    def test_glossary_fields(self) -> None:
         assert _extract_text({"term": "CPU", "definition": "中央处理器"}) == "CPU 中央处理器"

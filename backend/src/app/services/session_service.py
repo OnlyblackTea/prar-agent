@@ -1,5 +1,6 @@
 """Session 服务层：创建 session、管理 plan、答题、推进阶段。"""
 
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -113,8 +114,8 @@ class SessionService:
         self, *, session_id: UUID, decision_id: str, answer: str,
     ) -> bool:
         plan = await self.get_current_plan(session_id)
-        doc: dict = dict(plan.document)
-        nodes: list[dict] = list(doc.get("nodes", []))
+        doc: dict[str, Any] = dict(plan.document)
+        nodes: list[dict[str, Any]] = list(doc.get("nodes", []))
         found = False
         for n in nodes:
             if n.get("type") == "decision" and n.get("id") == decision_id:
@@ -136,7 +137,7 @@ class SessionService:
         return self._all_blocking_answered(nodes)
 
     @staticmethod
-    def _all_blocking_answered(nodes: list[dict]) -> bool:
+    def _all_blocking_answered(nodes: list[dict[str, Any]]) -> bool:
         for n in nodes:
             if (
                 n.get("type") == "decision"
@@ -235,7 +236,7 @@ class SessionService:
     async def advance_to_acting(self, session_id: UUID) -> models.Session:
         s = await self.get(session_id)
         plan = await self.get_current_plan(session_id)
-        nodes: list[dict] = list(plan.document.get("nodes", []))
+        nodes: list[dict[str, Any]] = list(plan.document.get("nodes", []))
         if not self._all_blocking_answered(nodes):
             raise ValueError("not all blocking decisions answered")
         new_phase = transition(

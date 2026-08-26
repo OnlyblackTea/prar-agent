@@ -1,5 +1,6 @@
 """Comment API 集成测试 — 使用 TestClient + dependency override 注入 mock service。"""
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -30,7 +31,7 @@ def client(mock_service: CommentService) -> TestClient:
     return TestClient(app)
 
 
-def make_comment_response(**overrides) -> CommentResponse:
+def make_comment_response(**overrides: Any) -> CommentResponse:
     defaults = {
         "id": uuid4(),
         "session_id": uuid4(),
@@ -50,7 +51,7 @@ def make_comment_response(**overrides) -> CommentResponse:
 
 
 class TestCreateComment:
-    def test_create_ok(self, client: TestClient, mock_service: MagicMock):
+    def test_create_ok(self, client: TestClient, mock_service: MagicMock) -> None:
         sid = str(uuid4())
         expected = make_comment_response()
         mock_service.create = AsyncMock(return_value=expected)
@@ -72,9 +73,9 @@ class TestCreateComment:
 
     def test_create_session_not_found(
         self, client: TestClient, mock_service: MagicMock,
-    ):
+    ) -> None:
         mock_service.create = AsyncMock(
-            side_effect=SessionNotFoundError("missing"),
+            side_effect=SessionNotFoundError(uuid4()),
         )
         resp = client.post(
             f"/api/sessions/{uuid4()}/comments",
@@ -91,7 +92,7 @@ class TestCreateComment:
 
     def test_create_phase_not_review(
         self, client: TestClient, mock_service: MagicMock,
-    ):
+    ) -> None:
         mock_service.create = AsyncMock(
             side_effect=ValueError("phase_not_review"),
         )
@@ -110,7 +111,7 @@ class TestCreateComment:
 
     def test_create_invalid_plan_version(
         self, client: TestClient, mock_service: MagicMock,
-    ):
+    ) -> None:
         mock_service.create = AsyncMock(
             side_effect=ValueError("invalid_plan_version"),
         )
@@ -129,7 +130,7 @@ class TestCreateComment:
 
 
 class TestListComments:
-    def test_list_ok(self, client: TestClient, mock_service: MagicMock):
+    def test_list_ok(self, client: TestClient, mock_service: MagicMock) -> None:
         c1 = make_comment_response()
         c2 = make_comment_response()
         mock_service.list_by_version = AsyncMock(return_value=[c1, c2])
@@ -141,7 +142,7 @@ class TestListComments:
 
 
 class TestGetComment:
-    def test_get_ok(self, client: TestClient, mock_service: MagicMock):
+    def test_get_ok(self, client: TestClient, mock_service: MagicMock) -> None:
         sid = uuid4()
         expected = make_comment_response(session_id=sid)
         mock_service.get = AsyncMock(return_value=expected)
@@ -149,14 +150,18 @@ class TestGetComment:
         resp = client.get(f"/api/sessions/{sid}/comments/{expected.id}")
         assert resp.status_code == 200
 
-    def test_get_not_found(self, client: TestClient, mock_service: MagicMock):
+    def test_get_not_found(
+        self, client: TestClient, mock_service: MagicMock,
+    ) -> None:
         mock_service.get = AsyncMock(
             side_effect=CommentNotFoundError("nope"),
         )
         resp = client.get(f"/api/sessions/{uuid4()}/comments/{uuid4()}")
         assert resp.status_code == 404
 
-    def test_get_wrong_session(self, client: TestClient, mock_service: MagicMock):
+    def test_get_wrong_session(
+        self, client: TestClient, mock_service: MagicMock,
+    ) -> None:
         sid = uuid4()
         comment = make_comment_response(session_id=uuid4())  # different
         mock_service.get = AsyncMock(return_value=comment)

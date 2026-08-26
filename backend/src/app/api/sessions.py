@@ -1,6 +1,7 @@
 """Session CRUD + Decision 答题 + 推进阶段 + Review Merge + 版本查询 API。"""
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,7 +40,7 @@ class PlanResponse(BaseModel):
     id: UUID
     session_id: UUID
     version: int
-    document: dict
+    document: dict[str, Any]
 
     model_config = {"from_attributes": True}
 

@@ -1,4 +1,5 @@
 from dataclasses import asdict
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -8,8 +9,8 @@ router = APIRouter(prefix="/api/providers", tags=["providers"])
 
 
 @router.get("")
-async def list_providers() -> dict:
-    providers = []
+async def list_providers() -> dict[str, Any]:
+    providers: list[dict[str, Any]] = []
     for spec in PROVIDER_REGISTRY.values():
         providers.append({
             "key": spec.key,

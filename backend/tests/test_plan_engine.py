@@ -1,5 +1,6 @@
 """Plan 引擎测试（全部 mock LLM，不真调 API）。"""
 
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -32,7 +33,7 @@ def _adapter() -> ResolvedAdapter:
     )
 
 
-def _mock_response(parsed):
+def _mock_response(parsed: PlanDocument | CriticResult) -> MagicMock:
     """构造一个 mock 的 StructuredResponse，只暴露 .parsed 属性。"""
     mock = MagicMock()
     mock.parsed = parsed
@@ -43,12 +44,12 @@ def _mock_response(parsed):
 
 
 @pytest.fixture
-def mock_router():
+def mock_router() -> AsyncMock:
     return AsyncMock()
 
 
 @pytest.fixture
-def plan_engine(mock_router):
+def plan_engine(mock_router: AsyncMock) -> PlanEngine:
     return PlanEngine(mock_router)
 
 
@@ -66,9 +67,9 @@ def test_assign_ids_numbers_sequentially() -> None:
         ],
     )
     result = _assign_ids(plan)
-    assert result.nodes[0].id == "step_001"
-    assert result.nodes[1].id == "step_002"
-    assert result.nodes[2].id == "step_003"
+    assert cast(StepNode, result.nodes[0]).id == "step_001"
+    assert cast(StepNode, result.nodes[1]).id == "step_002"
+    assert cast(StepNode, result.nodes[2]).id == "step_003"
 
 
 # ===== T2: assign_ids 跳过 paragraph 和 heading =====
@@ -87,7 +88,7 @@ def test_assign_ids_skips_paragraph_and_heading() -> None:
     result = _assign_ids(plan)
     assert getattr(result.nodes[0], "id", "") == ""
     assert getattr(result.nodes[1], "id", "") == ""
-    assert result.nodes[2].id == "step_001"
+    assert cast(StepNode, result.nodes[2]).id == "step_001"
 
 
 # ===== T3: assign_ids glossary =====
@@ -103,8 +104,8 @@ def test_assign_ids_glossary() -> None:
         ],
     )
     result = _assign_ids(plan)
-    assert result.nodes[0].id == "gls_001"
-    assert result.nodes[1].id == "gls_002"
+    assert cast(GlossaryNode, result.nodes[0]).id == "gls_001"
+    assert cast(GlossaryNode, result.nodes[1]).id == "gls_002"
 
 
 # ===== T4: apply_critic remove =====
@@ -125,7 +126,7 @@ def test_apply_critic_remove() -> None:
     )
     result = _apply_critic(plan, critic)
     assert len(result.nodes) == 1
-    assert result.nodes[0].title == "s2"
+    assert cast(StepNode, result.nodes[0]).title == "s2"
 
 
 # ===== T5: apply_critic replace =====
@@ -151,7 +152,7 @@ def test_apply_critic_replace() -> None:
         ]
     )
     result = _apply_critic(plan, critic)
-    assert result.nodes[0].title == "s1-new"
+    assert cast(StepNode, result.nodes[0]).title == "s1-new"
 
 
 # ===== T6: apply_critic insert_after =====
@@ -176,8 +177,8 @@ def test_apply_critic_insert_after() -> None:
     )
     result = _apply_critic(plan, critic)
     assert len(result.nodes) == 2
-    assert result.nodes[0].title == "s1"
-    assert result.nodes[1].title == "s2"
+    assert cast(StepNode, result.nodes[0]).title == "s1"
+    assert cast(StepNode, result.nodes[1]).title == "s2"
 
 
 # ===== T7: apply_critic 越界跳过 =====
@@ -210,14 +211,14 @@ def test_apply_critic_reassigns_ids() -> None:
         ],
     )
     plan = _assign_ids(plan)
-    assert plan.nodes[0].id == "step_001"
-    assert plan.nodes[1].id == "step_002"
+    assert cast(StepNode, plan.nodes[0]).id == "step_001"
+    assert cast(StepNode, plan.nodes[1]).id == "step_002"
     critic = CriticResult(
         actions=[CriticAction(node_index=0, action="remove", reason="remove first")]
     )
     result = _apply_critic(plan, critic)
     assert len(result.nodes) == 1
-    assert result.nodes[0].id == "step_001"
+    assert cast(StepNode, result.nodes[0]).id == "step_001"
 
 
 # ===== T9: generate 调用 planner 然后 critic =====
@@ -245,7 +246,7 @@ async def test_generate_calls_planner_then_critic(
 
     assert mock_router.complete_structured.call_count == 2
     assert result.title == "Plan"
-    assert result.nodes[0].id == "step_001"
+    assert cast(StepNode, result.nodes[0]).id == "step_001"
 
 
 # ===== T10: generate 传递 ltm_recall 到 prompt =====
@@ -349,4 +350,4 @@ def test_apply_critic_unknown_action_skipped() -> None:
     )
     result = _apply_critic(plan, critic)
     assert len(result.nodes) == 1
-    assert result.nodes[0].title == "s1"
+    assert cast(StepNode, result.nodes[0]).title == "s1"

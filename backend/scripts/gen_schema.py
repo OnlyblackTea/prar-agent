@@ -3,11 +3,14 @@
 import json
 import sys
 from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel
 
 
-def generate(shared_schemas: list[type]) -> dict:
+def generate(shared_schemas: list[type[BaseModel]]) -> dict[str, Any]:
     """从 SHARED_SCHEMAS 生成 JSON Schema Draft 2020-12."""
-    definitions: dict = {}
+    definitions: dict[str, Any] = {}
     for model in shared_schemas:
         schema = model.model_json_schema(mode="serialization")
         name = model.__name__

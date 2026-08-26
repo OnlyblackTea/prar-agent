@@ -4,7 +4,8 @@ import contextvars
 import logging
 import time
 import uuid
-from typing import Any
+from collections.abc import MutableMapping
+from typing import Any, cast
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -21,8 +22,8 @@ request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 
 def _add_request_id(
-    logger: logging.Logger, method_name: str, event_dict: dict[str, Any]
-) -> dict[str, Any]:
+    logger: logging.Logger, method_name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
     rid = request_id_var.get("")
     if rid:
         event_dict["request_id"] = rid
@@ -79,7 +80,7 @@ def setup_logging(*, log_level: str = "INFO", json_format: bool = False) -> None
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger(name)
+    return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))
 
 
 # ===== Middleware =====

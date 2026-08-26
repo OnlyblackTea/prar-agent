@@ -1,3 +1,5 @@
+from typing import cast
+
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import CheckConstraint, Table, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
@@ -40,7 +42,7 @@ def test_model_adapter_columns_and_constraints() -> None:
 
 def test_model_adapter_name_unique() -> None:
     """T2：UniqueConstraint name 生效。"""
-    table = ModelAdapter.__table__
+    table = cast(Table, ModelAdapter.__table__)
     unique_constraints = [
         c for c in table.constraints if isinstance(c, UniqueConstraint)
     ]
@@ -52,7 +54,7 @@ def test_model_adapter_name_unique() -> None:
 
 def test_model_adapter_default_partial_unique_index() -> None:
     """T3：部分唯一索引 model_adapters_default_unique 存在。"""
-    table = ModelAdapter.__table__
+    table = cast(Table, ModelAdapter.__table__)
     idx = next(
         (i for i in table.indexes if i.name == "model_adapters_default_unique"),
         None,
@@ -71,7 +73,7 @@ def test_model_adapter_credentials_env_is_jsonb() -> None:
 
 def test_model_adapter_no_provider_check_constraint() -> None:
     """T6：provider 列无 CHECK constraint（合法集由应用层 registry 决定）。"""
-    table = ModelAdapter.__table__
+    table = cast(Table, ModelAdapter.__table__)
     check_constraints = [
         c for c in table.constraints if isinstance(c, CheckConstraint)
     ]

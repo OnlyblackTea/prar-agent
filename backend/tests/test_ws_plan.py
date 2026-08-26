@@ -16,7 +16,7 @@ def ws_client() -> TestClient:
     return TestClient(app)
 
 
-def _valid_msg(adapter_id: str | None = None) -> dict:
+def _valid_msg(adapter_id: str | None = None) -> dict[str, str]:
     return {
         "type": "generate",
         "init_request": "build a web app",

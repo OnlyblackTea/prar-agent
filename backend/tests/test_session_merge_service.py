@@ -1,13 +1,21 @@
 """merge_plan 集成测试：real AsyncSession + mock router（需要真 DB）。"""
 
+from collections.abc import AsyncIterator
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.merger_schemas import MergerAction, MergerResult
-from app.core.plan_schemas import CriticAction, ParagraphNode, PlanDocument
+from app.core.plan_schemas import (
+    CriticAction,
+    HeadingNode,
+    ParagraphNode,
+    PlanDocument,
+)
 from app.db import models
 from app.services.session_service import SessionNotFoundError, SessionService
 
@@ -15,14 +23,14 @@ _PLAN_V1 = PlanDocument(
     title="T",
     summary="S",
     nodes=[
-        {"type": "heading", "level": 1, "text": "H1"},
-        {"type": "paragraph", "text": "original text"},
+        HeadingNode(level=1, text="H1"),
+        ParagraphNode(text="original text"),
     ],
 )
 
 
 @pytest.fixture
-async def db():
+async def db() -> AsyncIterator[AsyncSession]:
     """每用例独立 engine + 真 AsyncSession，结束时 rollback 清掉写入。
 
     不复用全局 engine：pytest-asyncio 每用例新 loop，连接池跨 loop 会报
@@ -45,7 +53,7 @@ async def db():
 
 
 @pytest.fixture(autouse=True)
-def _fake_credentials(monkeypatch):
+def _fake_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_MERGE_KEY", "sk-test")
 
 
@@ -66,7 +74,9 @@ def _patch_replace(index: int, text: str) -> CriticAction:
     )
 
 
-async def _seed(db, *, phase: str = "plan_review", n_comments: int = 0):
+async def _seed(
+    db: AsyncSession, *, phase: str = "plan_review", n_comments: int = 0
+) -> tuple[models.Session, list[models.Comment]]:
     """造 adapter + session(v1 plan, plan_review) + n 条 unresolved 评论。"""
     adapter = models.ModelAdapter(
         name="t-adapter",
@@ -101,14 +111,16 @@ async def _seed(db, *, phase: str = "plan_review", n_comments: int = 0):
     return session, comments
 
 
-async def _plan_versions(db, session_id) -> int:
+async def _plan_versions(db: AsyncSession, session_id: UUID) -> int:
     result = await db.execute(
         select(models.Plan).where(models.Plan.session_id == session_id)
     )
     return len(list(result.scalars().all()))
 
 
-async def test_merge_normal_creates_v2_and_marks_accepted(db):
+async def test_merge_normal_creates_v2_and_marks_accepted(
+    db: AsyncSession,
+) -> None:
     """case 1: accept + reject 混合 → v2 落库，仅 accepted 标 resolved。"""
     session, (c1, c2) = await _seed(db, n_comments=2)
     result = MergerResult(
@@ -131,14 +143,14 @@ async def test_merge_normal_creates_v2_and_marks_accepted(db):
     assert version == 2
     assert session.current_plan_version == 2
     assert await _plan_versions(db, session.id) == 2
-    assert new_plan.nodes[1].text == "revised text"
+    assert cast(ParagraphNode, new_plan.nodes[1]).text == "revised text"
     assert len(merger_result.actions) == 2
     assert c1.resolved is True
     assert c2.resolved is False
     assert session.phase == "plan_review"  # merge 不动 phase
 
 
-async def test_merge_no_unresolved_comments_raises(db):
+async def test_merge_no_unresolved_comments_raises(db: AsyncSession) -> None:
     """case 2: 无 unresolved comments → ValueError。"""
     session, _ = await _seed(db, n_comments=0)
     svc = SessionService(db)
@@ -146,7 +158,7 @@ async def test_merge_no_unresolved_comments_raises(db):
         await svc.merge_plan(session_id=session.id, router=_mock_router(MergerResult()))
 
 
-async def test_merge_wrong_phase_raises(db):
+async def test_merge_wrong_phase_raises(db: AsyncSession) -> None:
     """case 3: phase=acting → ValueError。"""
     session, _ = await _seed(db, phase="acting", n_comments=1)
     svc = SessionService(db)
@@ -154,7 +166,7 @@ async def test_merge_wrong_phase_raises(db):
         await svc.merge_plan(session_id=session.id, router=_mock_router(MergerResult()))
 
 
-async def test_merge_all_reject_keeps_version(db):
+async def test_merge_all_reject_keeps_version(db: AsyncSession) -> None:
     """case 4: 全 reject → 不落新版本，comments 保持 unresolved。"""
     session, (c1,) = await _seed(db, n_comments=1)
     result = MergerResult(
@@ -170,19 +182,19 @@ async def test_merge_all_reject_keeps_version(db):
     assert version == 1
     assert session.current_plan_version == 1
     assert await _plan_versions(db, session.id) == 1
-    assert plan.nodes[1].text == "original text"
+    assert cast(ParagraphNode, plan.nodes[1]).text == "original text"
     assert len(merger_result.actions) == 1
     assert c1.resolved is False
 
 
-async def test_merge_session_not_found(db):
+async def test_merge_session_not_found(db: AsyncSession) -> None:
     """case 5: session 不存在 → SessionNotFoundError。"""
     svc = SessionService(db)
     with pytest.raises(SessionNotFoundError):
         await svc.merge_plan(session_id=uuid4(), router=_mock_router(MergerResult()))
 
 
-async def test_merge_fabricated_comment_id_is_noop(db):
+async def test_merge_fabricated_comment_id_is_noop(db: AsyncSession) -> None:
     """case 6: LLM 编造不存在的 comment_id → mark_resolved 安静 no-op。"""
     session, (c1,) = await _seed(db, n_comments=1)
     result = MergerResult(

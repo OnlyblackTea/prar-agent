@@ -1,7 +1,8 @@
 """ReviewMerger 单元测试（全部 mock LLM，不真调 API）。"""
 
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -29,7 +30,7 @@ def _adapter() -> ResolvedAdapter:
     )
 
 
-def _mock_response(parsed):
+def _mock_response(parsed: MergerResult) -> MagicMock:
     """构造一个 mock 的 StructuredResponse，只暴露 .parsed 属性。"""
     mock = MagicMock()
     mock.parsed = parsed
@@ -47,7 +48,7 @@ def _plan() -> PlanDocument:
     )
 
 
-def _comment_row(comment_id=None) -> MagicMock:
+def _comment_row(comment_id: UUID | None = None) -> MagicMock:
     """MagicMock ORM 行（同 test_comment_service.py 风格）。"""
     c = MagicMock(spec=Comment)
     c.id = comment_id or uuid4()
@@ -59,19 +60,21 @@ def _comment_row(comment_id=None) -> MagicMock:
 
 
 @pytest.fixture
-def mock_router():
+def mock_router() -> AsyncMock:
     return AsyncMock()
 
 
 @pytest.fixture
-def merger(mock_router):
+def merger(mock_router: AsyncMock) -> ReviewMerger:
     return ReviewMerger(mock_router)
 
 
 # ===== Case 1: comments 空 → 不调 LLM 直接返 =====
 
 
-async def test_merge_empty_comments_skips_llm(merger, mock_router) -> None:
+async def test_merge_empty_comments_skips_llm(
+    merger: ReviewMerger, mock_router: AsyncMock
+) -> None:
     plan = _plan()
     new_plan, result = await merger.merge(
         plan=plan, comments=[], adapter=_adapter(),
@@ -84,7 +87,9 @@ async def test_merge_empty_comments_skips_llm(merger, mock_router) -> None:
 # ===== Case 2: 全 accept → patch 应用 + 新 plan 节点变化 =====
 
 
-async def test_merge_all_accept_applies_patches(merger, mock_router) -> None:
+async def test_merge_all_accept_applies_patches(
+    merger: ReviewMerger, mock_router: AsyncMock
+) -> None:
     c1 = _comment_row()
     cid = c1.id
     mock_router.complete_structured.return_value = _mock_response(
@@ -110,14 +115,16 @@ async def test_merge_all_accept_applies_patches(merger, mock_router) -> None:
         plan=_plan(), comments=[c1], adapter=_adapter(),
     )
     mock_router.complete_structured.assert_called_once()
-    assert new_plan.nodes[0].text == "revised paragraph"  # type: ignore[union-attr]
+    assert cast(ParagraphNode, new_plan.nodes[0]).text == "revised paragraph"
     assert result.actions[0].decision == "accept"
 
 
 # ===== Case 3: 全 reject → 返回原 plan + actions 齐 =====
 
 
-async def test_merge_all_reject_returns_original_plan(merger, mock_router) -> None:
+async def test_merge_all_reject_returns_original_plan(
+    merger: ReviewMerger, mock_router: AsyncMock
+) -> None:
     c1 = _comment_row()
     cid = c1.id
     plan = _plan()
@@ -146,7 +153,9 @@ async def test_merge_all_reject_returns_original_plan(merger, mock_router) -> No
 # ===== Case 4: 非法 patch（node_index 越界）→ 跳过不崩 =====
 
 
-async def test_merge_out_of_bounds_patch_skipped(merger, mock_router) -> None:
+async def test_merge_out_of_bounds_patch_skipped(
+    merger: ReviewMerger, mock_router: AsyncMock
+) -> None:
     c1 = _comment_row()
     cid = c1.id
     plan = _plan()
@@ -178,7 +187,9 @@ async def test_merge_out_of_bounds_patch_skipped(merger, mock_router) -> None:
 # ===== Case 5: 混合 accept/reject/partial → 只应用有 patch 的 =====
 
 
-async def test_merge_mixed_decisions(merger, mock_router) -> None:
+async def test_merge_mixed_decisions(
+    merger: ReviewMerger, mock_router: AsyncMock
+) -> None:
     c1, c2, c3 = _comment_row(), _comment_row(), _comment_row()
     mock_router.complete_structured.return_value = _mock_response(
         MergerResult(
@@ -219,9 +230,9 @@ async def test_merge_mixed_decisions(merger, mock_router) -> None:
         plan=_plan(), comments=[c1, c2, c3], adapter=_adapter(),
     )
     assert len(result.actions) == 3
-    assert new_plan.nodes[0].text == "accepted change"  # type: ignore[union-attr]
+    assert cast(ParagraphNode, new_plan.nodes[0]).text == "accepted change"
     assert len(new_plan.nodes) == 3
-    assert new_plan.nodes[2].text == "extra note"  # type: ignore[union-attr]
+    assert cast(ParagraphNode, new_plan.nodes[2]).text == "extra note"
 
 
 # ===== 辅助：_comments_to_prompt_json 只保留约定字段 =====

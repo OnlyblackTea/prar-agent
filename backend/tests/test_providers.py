@@ -1,8 +1,10 @@
 """Provider Plugin Registry 测试。"""
 
+from typing import cast
 from uuid import uuid4
 
 import pytest
+from instructor import AsyncInstructor
 
 from app.llm.providers.base import PROVIDER_REGISTRY, ProviderSpec, register_provider
 from app.llm.types import ResolvedAdapter
@@ -26,7 +28,7 @@ def test_duplicate_register_raises_value_error() -> None:
                 key="anthropic",
                 label="dup",
                 credentials_fields={},
-                build_client=lambda r: None,  # type: ignore[return-value]
+                build_client=lambda r: cast(AsyncInstructor, None),
             )
 
 

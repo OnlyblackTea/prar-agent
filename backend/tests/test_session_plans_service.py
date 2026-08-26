@@ -1,10 +1,12 @@
 """list_plans / get_plan service 测试：real AsyncSession（需要真 DB）。"""
 
+from collections.abc import AsyncIterator
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.plan_schemas import PlanDocument
+from app.core.plan_schemas import HeadingNode, ParagraphNode, PlanDocument
 from app.db import models
 from app.services.session_service import SessionNotFoundError, SessionService
 
@@ -12,14 +14,14 @@ _PLAN_V1 = PlanDocument(
     title="T",
     summary="S",
     nodes=[
-        {"type": "heading", "level": 1, "text": "H1"},
-        {"type": "paragraph", "text": "original text"},
+        HeadingNode(level=1, text="H1"),
+        ParagraphNode(text="original text"),
     ],
 )
 
 
 @pytest.fixture
-async def db():
+async def db() -> AsyncIterator[AsyncSession]:
     """每用例独立 engine + 真 AsyncSession，结束时 rollback 清掉写入。"""
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -38,11 +40,13 @@ async def db():
 
 
 @pytest.fixture(autouse=True)
-def _fake_credentials(monkeypatch):
+def _fake_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_PLAN_QUERY_KEY", "sk-test")
 
 
-async def _seed(db, *, save_plan: bool = True, extra_versions: int = 0):
+async def _seed(
+    db: AsyncSession, *, save_plan: bool = True, extra_versions: int = 0
+) -> models.Session:
     """造 adapter + session（+ v1 plan + 追加 extra_versions 个手工版本行）。"""
     adapter = models.ModelAdapter(
         name="t-adapter",
@@ -71,7 +75,7 @@ async def _seed(db, *, save_plan: bool = True, extra_versions: int = 0):
     return session
 
 
-async def test_list_plans_ascending(db):
+async def test_list_plans_ascending(db: AsyncSession) -> None:
     """case 1: 多版本按 version 升序返回，附带 session。"""
     session = await _seed(db, extra_versions=2)
     svc = SessionService(db)
@@ -82,7 +86,7 @@ async def test_list_plans_ascending(db):
     assert s.current_plan_version == 3
 
 
-async def test_list_plans_empty_when_no_plan(db):
+async def test_list_plans_empty_when_no_plan(db: AsyncSession) -> None:
     """case 2: session 无 plan → 空列表（不是 404）。"""
     session = await _seed(db, save_plan=False)
     svc = SessionService(db)
@@ -90,14 +94,14 @@ async def test_list_plans_empty_when_no_plan(db):
     assert plans == []
 
 
-async def test_list_plans_session_not_found(db):
+async def test_list_plans_session_not_found(db: AsyncSession) -> None:
     """case 3: session 不存在 → SessionNotFoundError。"""
     svc = SessionService(db)
     with pytest.raises(SessionNotFoundError):
         await svc.list_plans(uuid4())
 
 
-async def test_get_plan_returns_requested_version(db):
+async def test_get_plan_returns_requested_version(db: AsyncSession) -> None:
     """case 4: 指定版本命中，document 完整。"""
     session = await _seed(db, extra_versions=1)
     svc = SessionService(db)
@@ -106,7 +110,7 @@ async def test_get_plan_returns_requested_version(db):
     assert plan.document["title"] == "T"
 
 
-async def test_get_plan_invalid_version(db):
+async def test_get_plan_invalid_version(db: AsyncSession) -> None:
     """case 5: 越界版本 → ValueError('plan_version_not_found')。"""
     session = await _seed(db)
     svc = SessionService(db)
@@ -114,7 +118,7 @@ async def test_get_plan_invalid_version(db):
         await svc.get_plan(session.id, 99)
 
 
-async def test_get_plan_session_not_found(db):
+async def test_get_plan_session_not_found(db: AsyncSession) -> None:
     """case 6: session 不存在 → SessionNotFoundError（优先于版本校验）。"""
     svc = SessionService(db)
     with pytest.raises(SessionNotFoundError):

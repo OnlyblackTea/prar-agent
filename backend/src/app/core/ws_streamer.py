@@ -2,13 +2,14 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from typing import Any
 
 from app.core.plan_schemas import PlanDocument
 
 CHUNK_DELAY_MS = 50
 
 
-async def stream_plan(plan: PlanDocument, session_id: str) -> AsyncIterator[dict]:
+async def stream_plan(plan: PlanDocument, session_id: str) -> AsyncIterator[dict[str, Any]]:
     """把 PlanDocument 拆成事件序列：plan.start → plan.node × N → plan.done。"""
     yield {
         "type": "plan.start",
