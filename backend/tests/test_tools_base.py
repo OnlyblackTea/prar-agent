@@ -67,6 +67,7 @@ class _FakeShell:
         *,
         timeout: float | None = None,
         env: dict[str, str] | None = None,
+        cwd: Path | None = None,
     ) -> ShellResult:
         return ShellResult(exit_code=0, stdout="", stderr="")
 

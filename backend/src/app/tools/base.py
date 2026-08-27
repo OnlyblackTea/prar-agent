@@ -33,7 +33,11 @@ class ShellResult:
 
 
 class ShellRunner(Protocol):
-    """shell 命令执行入口。Task 16 sandbox 实现此协议（rlimit/超时/目录隔离/禁网）。"""
+    """shell 命令执行入口。Task 16 sandbox 实现此协议（rlimit/超时/目录隔离/禁网）。
+
+    cwd 为沙箱视角的相对路径（相对沙箱根）；None 表示沙箱根。
+    15 → 16 协议扩展见 docs/design/15-tool-abc-registry.md 设计变更章节。
+    """
 
     async def run(
         self,
@@ -41,6 +45,7 @@ class ShellRunner(Protocol):
         *,
         timeout: float | None = None,
         env: dict[str, str] | None = None,
+        cwd: Path | None = None,
     ) -> ShellResult: ...
 
 

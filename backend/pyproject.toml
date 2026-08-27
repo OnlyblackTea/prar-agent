@@ -53,6 +53,10 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "RUF"]
 # 容许中文全角标点出现在中文注释/docstring 中
 ignore = ["RUF001", "RUF002", "RUF003", "B008"]
 
+[tool.ruff.lint.per-file-ignores]
+# ctypes 结构体类名有意镜像 Windows API 的大写下划线命名
+"src/app/tools/sandbox.py" = ["N801"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

@@ -138,7 +138,11 @@ class ShellResult:
 
 
 class ShellRunner(Protocol):
-    """shell 命令执行入口。Task 16 sandbox 实现此协议（rlimit/超时/目录隔离/禁网）。"""
+    """shell 命令执行入口。Task 16 sandbox 实现此协议（rlimit/超时/目录隔离/禁网）。
+
+    cwd 为沙箱视角的相对路径（相对沙箱根）；None 表示沙箱根。
+    （2026-08-27 由 Task 16 触发扩展，见文末设计变更章节）
+    """
 
     async def run(
         self,
@@ -146,6 +150,7 @@ class ShellRunner(Protocol):
         *,
         timeout: float | None = None,
         env: dict[str, str] | None = None,
+        cwd: Path | None = None,
     ) -> ShellResult: ...
 
 
@@ -351,3 +356,18 @@ cd backend && make typecheck     # mypy strict 零错误
 | Q8 | registry 单例         | **类 + 显式构造**（dispatcher 持有），不提供模块级单例/工厂                                     | "模块级 `get_registry()`"  |
 
 如以上 8 项主人无异议，请直接回复 `APPROVED`，我立即按本设计落代码并 commit。
+
+## 设计变更 (2026-08-27)
+
+> Task 16 落地时触发，走 WORKFLOW §5 流程（本风险表预留路径）。
+
+### `ShellRunner.run` 协议扩展 `cwd`
+
+- **变更**：`ShellRunner.run` 增加 `cwd: Path | None = None`（keyword-only，
+  沙箱视角相对路径；None = 沙箱根）。
+- **动机**：Task 17 的 shell 工具需把 `ExecContext.workdir`（沙箱视角的
+  相对根）传给沙箱，否则 shell 工具无法在计划 step 的隔离工作目录内执行。
+- **语义**：相对路径 + 逃逸即 `ToolExecutionError`；不新增 stdin
+  （Task 18 若需交互式 stdin 再走 §5 扩展）。
+- **落地**：`base.py` 协议原地更新（正文同步新签名）；`test_tools_base.py`
+  的 `_FakeShell.run` 同步签名（mypy structural 兼容需要）。
