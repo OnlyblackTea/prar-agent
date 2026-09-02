@@ -727,6 +727,215 @@
       ],
       "title": "PlanListResponse",
       "type": "object"
+    },
+    "MemoryCreate": {
+      "properties": {
+        "kind": {
+          "enum": [
+            "episodic",
+            "semantic",
+            "procedural"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "importance": {
+          "default": 0.5,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Importance",
+          "type": "number"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "User Id"
+        },
+        "source_session": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Session"
+        }
+      },
+      "required": [
+        "kind",
+        "content"
+      ],
+      "title": "MemoryCreate",
+      "type": "object"
+    },
+    "MemoryResponse": {
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "importance": {
+          "title": "Importance",
+          "type": "number"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Id"
+        },
+        "source_session": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Session"
+        },
+        "last_accessed": {
+          "format": "date-time",
+          "title": "Last Accessed",
+          "type": "string"
+        },
+        "access_count": {
+          "title": "Access Count",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "content",
+        "importance",
+        "user_id",
+        "source_session",
+        "last_accessed",
+        "access_count",
+        "created_at"
+      ],
+      "title": "MemoryResponse",
+      "type": "object"
+    },
+    "MemoryHitResponse": {
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "importance": {
+          "title": "Importance",
+          "type": "number"
+        },
+        "source_session": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Session"
+        },
+        "last_accessed": {
+          "format": "date-time",
+          "title": "Last Accessed",
+          "type": "string"
+        },
+        "access_count": {
+          "title": "Access Count",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "content",
+        "importance",
+        "source_session",
+        "last_accessed",
+        "access_count",
+        "created_at",
+        "score"
+      ],
+      "title": "MemoryHitResponse",
+      "type": "object"
+    },
+    "MemorySearchResponse": {
+      "properties": {
+        "hits": {
+          "items": {
+            "$ref": "#/$defs/MemoryHitResponse"
+          },
+          "title": "Hits",
+          "type": "array"
+        }
+      },
+      "required": [
+        "hits"
+      ],
+      "title": "MemorySearchResponse",
+      "type": "object"
     }
   }
 }

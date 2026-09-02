@@ -10,6 +10,12 @@ from app.api.adapters import (
     ModelAdapterResponse,
     ModelAdapterUpdate,
 )
+from app.api.memories import (
+    MemoryCreate,
+    MemoryHitResponse,
+    MemoryResponse,
+    MemorySearchResponse,
+)
 from app.api.sessions import PlanListResponse, PlanSummary
 from app.core.comment_schemas import CommentCreate, CommentResponse
 from app.core.merger_schemas import MergerAction, MergerResult
@@ -29,4 +35,8 @@ SHARED_SCHEMAS: list[type] = [
     MergerResult,
     PlanSummary,
     PlanListResponse,
+    MemoryCreate,
+    MemoryResponse,
+    MemoryHitResponse,
+    MemorySearchResponse,
 ]

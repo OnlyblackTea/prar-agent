@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     llm_default_max_tokens: int = 4096
     llm_default_max_retries: int = 2
 
+    # Embedding 服务（M4 长期记忆底座；OpenAI 兼容端点）
+    embedding_model: str = "text-embedding-v1"
+    embedding_dim: int = 1536  # 运行时契约，与 memories.embedding Vector(1536) 对齐
+    embedding_base_url: str | None = None  # None → SDK 读 OPENAI_BASE_URL
+    embedding_api_key: str | None = None  # None → SDK 读 OPENAI_API_KEY
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
