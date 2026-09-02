@@ -8,11 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.embedding import (
+    EmbeddingDimensionError,
+    EmbeddingError,
+    get_embedding_service,
+)
 from app.core.merger_schemas import MergerResult
 from app.core.plan_schemas import PlanDocument
 from app.core.state_machine import InvalidTransitionError
 from app.db.session import get_db
 from app.llm.router import LLMRouter
+from app.memory.long_term import LongTermMemory
+from app.services.memory_service import MemoryService
 from app.services.session_service import SessionNotFoundError, SessionService
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -88,6 +95,10 @@ async def get_session_service(
     db: AsyncSession = Depends(get_db),
 ) -> SessionService:
     return SessionService(db)
+
+
+async def get_long_term(db: AsyncSession = Depends(get_db)) -> LongTermMemory:
+    return LongTermMemory(MemoryService(db, get_embedding_service()))
 
 
 def get_router_dep() -> LLMRouter:
@@ -223,6 +234,31 @@ async def advance_to_acting(
             status_code=409, detail="illegal_phase_transition",
         ) from e
     return AdvanceToActingResponse(phase=s.phase)
+
+
+@router.post("/{session_id}/complete", response_model=SessionResponse)
+async def complete_session(
+    session_id: UUID,
+    service: SessionService = Depends(get_session_service),
+    long_term: LongTermMemory = Depends(get_long_term),
+) -> SessionResponse:
+    try:
+        s = await service.complete(session_id=session_id, long_term=long_term)
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail="session_not_found") from e
+    except InvalidTransitionError as e:
+        raise HTTPException(
+            status_code=409, detail="illegal_phase_transition",
+        ) from e
+    except EmbeddingDimensionError as e:
+        raise HTTPException(
+            status_code=502, detail="embedding_dimension_mismatch",
+        ) from e
+    except EmbeddingError as e:
+        raise HTTPException(status_code=502, detail="embedding_failed") from e
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return SessionResponse.model_validate(s)
 
 
 @router.post("/{session_id}/merge", response_model=MergeResponse)

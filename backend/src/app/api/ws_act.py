@@ -125,6 +125,21 @@ async def act_websocket(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 sink=WSActSink(websocket),
             )
 
+            session.metadata_json = {
+                **session.metadata_json,
+                "last_run": {
+                    "plan_version": plan_row.version,
+                    "all_ok": all(r.ok for r in records),
+                    "steps": [
+                        {
+                            "step_id": r.step_id,
+                            "ok": r.ok,
+                            "git_commit": r.git_commit,
+                        }
+                        for r in records
+                    ],
+                },
+            }
             transition(
                 Phase(session.phase), Phase.ACTION_REVIEW, session_id=str(session_id),
             )

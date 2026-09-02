@@ -12,10 +12,37 @@ from app.core.review_merger import ReviewMerger
 from app.core.state_machine import Phase, transition
 from app.db import models
 from app.llm.router import LLMRouter
+from app.memory.long_term import LongTermMemory, RunSummary, StepOutcome
 from app.services.adapter_service import AdapterService
 from app.services.comment_service import CommentService
 
 _log = get_logger("session_service")
+
+
+def _parse_run_summary(metadata: dict[str, Any]) -> RunSummary | None:
+    """解析 metadata_json["last_run"]；缺失/结构不符 → None（容忍旧数据）。"""
+    raw = metadata.get("last_run")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        steps_raw = raw["steps"]
+        if not isinstance(steps_raw, list):
+            return None
+        steps = [
+            StepOutcome(
+                step_id=str(it["step_id"]),
+                ok=bool(it["ok"]),
+                git_commit=it.get("git_commit"),
+            )
+            for it in steps_raw
+        ]
+        return RunSummary(
+            plan_version=int(raw["plan_version"]),
+            all_ok=bool(raw["all_ok"]),
+            steps=steps,
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 class SessionNotFoundError(Exception):
@@ -245,4 +272,34 @@ class SessionService:
         s.phase = new_phase.value
         await self._db.flush()
         _log.info("session_advanced", session_id=str(session_id), new_phase=s.phase)
+        return s
+
+    async def complete(
+        self, *, session_id: UUID, long_term: LongTermMemory,
+    ) -> models.Session:
+        """ACTION_REVIEW → DONE：先落 episodic 记忆（embedding 失败即上抛），再切 phase。
+
+        memory 行与 phase 切换同事务；record_episodic 抛 EmbeddingError 时
+        phase 未改、无部分写入，调用方可重试。
+        """
+        s = await self.get(session_id)
+        new_phase = transition(
+            Phase(s.phase), Phase.DONE, session_id=str(session_id),
+        )
+        try:
+            plan_row = await self.get_current_plan(session_id)
+        except ValueError as e:
+            raise ValueError("plan_not_found") from e
+        plan = PlanDocument.model_validate(plan_row.document)
+        run = _parse_run_summary(s.metadata_json or {})
+        await long_term.record_episodic(
+            session_id=session_id,
+            init_request=s.init_request,
+            plan_version=plan_row.version,
+            plan=plan,
+            run=run,
+        )
+        s.phase = new_phase.value
+        await self._db.flush()
+        _log.info("session_completed", session_id=str(session_id))
         return s

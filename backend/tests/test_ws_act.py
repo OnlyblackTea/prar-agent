@@ -28,6 +28,7 @@ def _acting_session(sid: uuid.UUID) -> MagicMock:
     s.phase = "acting"
     s.id = sid
     s.adapter_id = uuid.uuid4()
+    s.metadata_json = {}
     return s
 
 
@@ -151,6 +152,15 @@ def test_ws_act_success_full_sequence_and_transition(ws_client: TestClient) -> N
             assert events[3]["output"] == "exit_code=0"
             assert events[4] == {"type": "plan.done", "total_steps": 1, "all_ok": True}
             assert session.phase == "action_review"
+            assert session.metadata_json == {
+                "last_run": {
+                    "plan_version": 3,
+                    "all_ok": True,
+                    "steps": [
+                        {"step_id": "step_000", "ok": True, "git_commit": None}
+                    ],
+                }
+            }
 
 
 # ===== W5: plan 不存在 → plan_not_found =====
