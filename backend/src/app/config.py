@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     embedding_base_url: str | None = None  # None → SDK 读 OPENAI_BASE_URL
     embedding_api_key: str | None = None  # None → SDK 读 OPENAI_API_KEY
 
+    # M4 Consolidator 后台任务
+    consolidator_interval_seconds: int = 3600
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

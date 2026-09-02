@@ -4,9 +4,10 @@ from uuid import UUID
 
 from app.core.logging import get_logger
 from app.core.merger_schemas import MergerResult
-from app.core.plan_engine import _apply_critic, _load_prompt
+from app.core.plan_engine import _apply_critic
 from app.core.plan_schemas import CriticResult, PlanDocument
 from app.db.models import Comment
+from app.llm.prompts.loader import load_prompt
 from app.llm.router import LLMRouter
 from app.llm.types import ResolvedAdapter
 
@@ -18,7 +19,7 @@ class ReviewMerger:
 
     def __init__(self, router: LLMRouter) -> None:
         self._router = router
-        self._prompt = _load_prompt("merger.md")
+        self._prompt = load_prompt("merger.md")
 
     async def merge(
         self,

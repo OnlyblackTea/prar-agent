@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.core.plan_engine import PlanEngine, _apply_critic, _assign_ids, _load_prompt
+from app.core.plan_engine import PlanEngine, _apply_critic, _assign_ids
 from app.core.plan_schemas import (
     CriticAction,
     CriticResult,
@@ -17,6 +17,7 @@ from app.core.plan_schemas import (
     PlanDocument,
     StepNode,
 )
+from app.llm.prompts.loader import load_prompt as _load_prompt
 from app.llm.types import ResolvedAdapter
 
 # ===== Helpers =====

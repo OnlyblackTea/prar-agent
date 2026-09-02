@@ -13,6 +13,13 @@ from app.core.embedding import (
     get_embedding_service,
 )
 from app.db.session import get_db
+from app.llm.router import LLMError, LLMRouter
+from app.llm.types import ResolvedAdapter
+from app.memory.consolidator import (
+    Consolidator,
+    NoDefaultAdapterError,
+    resolve_default_adapter,
+)
 from app.services.memory_service import MemoryService
 
 MemoryKind = Literal["episodic", "semantic", "procedural"]
@@ -64,8 +71,40 @@ class MemorySearchResponse(BaseModel):
     hits: list[MemoryHitResponse]
 
 
+class ConsolidateResponse(BaseModel):
+    processed: int
+    distilled: int
+    inserted: int
+    merged: int
+    decayed: int
+
+
 async def get_memory_service(db: AsyncSession = Depends(get_db)) -> MemoryService:
     return MemoryService(db, get_embedding_service())
+
+
+def get_router_dep() -> LLMRouter:
+    """复用 ws_plan.get_router 的 lru_cache 单例（M1-10a-fixup 已建立）。"""
+    from app.api.ws_plan import get_router
+    return get_router()
+
+
+async def get_consolidator(
+    db: AsyncSession = Depends(get_db),
+    router: LLMRouter = Depends(get_router_dep),
+) -> Consolidator:
+    return Consolidator(
+        db=db,
+        store=MemoryService(db, get_embedding_service()),
+        router=router,
+        embedding=get_embedding_service(),
+    )
+
+
+async def get_default_adapter(
+    db: AsyncSession = Depends(get_db),
+) -> ResolvedAdapter | None:
+    return await resolve_default_adapter(db)
 
 
 @router.post("", response_model=MemoryResponse, status_code=201)
@@ -126,4 +165,26 @@ async def search_memories(
             )
             for h in hits
         ]
+    )
+
+
+@router.post("/consolidate", response_model=ConsolidateResponse)
+async def consolidate_memories(
+    consolidator: Consolidator = Depends(get_consolidator),
+    adapter: ResolvedAdapter | None = Depends(get_default_adapter),
+) -> ConsolidateResponse:
+    try:
+        result = await consolidator.run_once(adapter=adapter)
+    except NoDefaultAdapterError as e:
+        raise HTTPException(status_code=503, detail="no_default_adapter") from e
+    except LLMError as e:
+        raise HTTPException(status_code=502, detail="llm_failed") from e
+    except EmbeddingError as e:
+        raise HTTPException(status_code=502, detail="embedding_failed") from e
+    return ConsolidateResponse(
+        processed=result.processed,
+        distilled=result.distilled,
+        inserted=result.inserted,
+        merged=result.merged,
+        decayed=result.decayed,
     )

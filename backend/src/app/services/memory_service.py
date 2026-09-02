@@ -1,9 +1,10 @@
-"""Memory 向量写入/检索服务（pgvector 余弦检索 + access 记账）。"""
+"""Memory 向量写入/检索服务（pgvector 余弦检索 + access 记账 + Consolidator 支撑）。"""
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.embedding import EmbeddingService
@@ -40,10 +41,15 @@ class MemoryService:
         importance: float = 0.5,
         user_id: UUID | None = None,
         source_session: UUID | None = None,
+        embedding: list[float] | None = None,
     ) -> Memory:
         if kind not in VALID_KINDS:
             raise ValueError(f"invalid kind: {kind!r}")
-        vec = await self._embedding.embed_one(content)
+        vec = (
+            embedding
+            if embedding is not None
+            else await self._embedding.embed_one(content)
+        )
         mem = Memory(
             kind=kind,
             content=content,
@@ -67,13 +73,35 @@ class MemoryService:
     ) -> list[MemoryHit]:
         if not query.strip():
             raise ValueError("query must not be blank")
+        vec = await self._embedding.embed_one(query)
+        hits = await self.search_vector(vec=vec, limit=limit, kinds=kinds)
+
+        mem_ids = [h.memory.id for h in hits]
+        if mem_ids:
+            await self._db.execute(
+                update(Memory)
+                .where(Memory.id.in_(mem_ids))
+                .values(
+                    access_count=Memory.access_count + 1,
+                    last_accessed=func.now(),
+                )
+            )
+        return hits
+
+    async def search_vector(
+        self,
+        *,
+        vec: list[float],
+        limit: int = DEFAULT_LIMIT,
+        kinds: Sequence[str] | None = None,
+    ) -> list[MemoryHit]:
+        """按向量余弦检索。不记账、不 embed——供合并去重复用已有向量。"""
         if not 1 <= limit <= MAX_LIMIT:
             raise ValueError(f"limit must be in [1, {MAX_LIMIT}]")
         if kinds is not None:
             invalid = [k for k in kinds if k not in VALID_KINDS]
             if invalid:
                 raise ValueError(f"invalid kind: {invalid[0]!r}")
-        vec = await self._embedding.embed_one(query)
 
         distance = Memory.embedding.cosine_distance(vec)
         stmt = (
@@ -85,16 +113,75 @@ class MemoryService:
         if kinds is not None:
             stmt = stmt.where(Memory.kind.in_(kinds))
         result = await self._db.execute(stmt)
-        rows = result.all()
+        return [
+            MemoryHit(memory=mem, score=float(s)) for mem, s in result.all()
+        ]
 
-        mem_ids = [mem.id for mem, _ in rows]
-        if mem_ids:
+    async def merge_into(
+        self,
+        *,
+        memory_id: UUID,
+        content: str,
+        embedding: list[float],
+        importance: float,
+    ) -> None:
+        """合并去重：新提炼内容覆盖旧行（提炼结果语义上是更综合的知识）。"""
+        await self._db.execute(
+            update(Memory)
+            .where(Memory.id == memory_id)
+            .values(
+                content=content,
+                embedding=embedding,
+                importance=importance,
+            )
+        )
+        _log.info("memory_merged", memory_id=str(memory_id))
+
+    async def list_unconsolidated(
+        self,
+        *,
+        limit: int,
+        for_update: bool = False,
+    ) -> list[Memory]:
+        """取未消费的 episodic 原料（consumed 标记 = consolidated_at IS NULL）。"""
+        stmt = (
+            select(Memory)
+            .where(Memory.kind == "episodic", Memory.consolidated_at.is_(None))
+            .order_by(Memory.created_at)
+            .limit(limit)
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def mark_consolidated(self, *, ids: Sequence[UUID]) -> int:
+        if not ids:
+            return 0
+        result = cast(
+            CursorResult[Any],
             await self._db.execute(
                 update(Memory)
-                .where(Memory.id.in_(mem_ids))
-                .values(
-                    access_count=Memory.access_count + 1,
-                    last_accessed=func.now(),
-                )
-            )
-        return [MemoryHit(memory=mem, score=float(s)) for mem, s in rows]
+                .where(Memory.id.in_(ids))
+                .values(consolidated_at=func.now())
+            ),
+        )
+        return int(result.rowcount or 0)
+
+    async def decay_importance(
+        self,
+        *,
+        kinds: Sequence[str],
+        factor: float,
+        floor: float,
+    ) -> int:
+        """对指定 kind 的行做 importance 衰减（GREATEST 保下限）。episodic 不衰减。"""
+        result = cast(
+            CursorResult[Any],
+            await self._db.execute(
+                update(Memory)
+                .where(Memory.kind.in_(kinds))
+                .values(importance=func.greatest(floor, Memory.importance * factor))
+            ),
+        )
+        return int(result.rowcount or 0)

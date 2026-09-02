@@ -1,9 +1,8 @@
 """Plan 引擎：Planner → assign_ids → Critic → apply_critic."""
 
-from pathlib import Path
-
 from app.core.logging import get_logger
 from app.core.plan_schemas import CriticResult, PlanDocument, PlanNode
+from app.llm.prompts.loader import load_prompt
 from app.llm.router import LLMRouter
 from app.llm.types import ResolvedAdapter
 
@@ -13,15 +12,6 @@ _DEFAULT_TOOLS = ["shell", "fs.read", "fs.write"]
 
 
 # ===== 内部工具函数 =====
-
-
-def _load_prompt(filename: str) -> str:
-    """从 llm/prompts/ 加载 prompt 模板文件。"""
-    prompts_dir = Path(__file__).resolve().parent.parent / "llm" / "prompts"
-    target = (prompts_dir / filename).resolve()
-    if not target.is_relative_to(prompts_dir):
-        raise ValueError(f"Invalid prompt filename: {filename}")
-    return target.read_text(encoding="utf-8")
 
 
 def _assign_ids(plan: PlanDocument) -> PlanDocument:
@@ -72,8 +62,8 @@ def _apply_critic(plan: PlanDocument, critic: CriticResult) -> PlanDocument:
 class PlanEngine:
     def __init__(self, router: LLMRouter) -> None:
         self._router = router
-        self._planner_prompt = _load_prompt("planner.md")
-        self._critic_prompt = _load_prompt("critic.md")
+        self._planner_prompt = load_prompt("planner.md")
+        self._critic_prompt = load_prompt("critic.md")
 
     async def _call_planner(
         self,
