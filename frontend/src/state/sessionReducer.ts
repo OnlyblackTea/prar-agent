@@ -2,11 +2,36 @@ import type { PlanNode, PlanDocument, CommentResponse } from '@/types/shared'
 
 // ===== State =====
 
+export interface ActionStep {
+  index: number
+  stepId: string
+  title: string
+  tool: string
+  toolArgs: Record<string, unknown>
+  status: 'running' | 'done' | 'failed'
+  stdout: string
+  output: string
+  exitCode: number | null
+  attempts: number
+  artifacts: string[]
+  thoughts: string[]
+  failureReason: string | null
+  gitCommit: string | null
+}
+
+export interface ActionRun {
+  status: 'running' | 'done' | 'failed'
+  allOk: boolean | null
+  error: string | null
+  steps: ActionStep[]
+}
+
 export type SessionState =
   | { status: 'idle' }
   | { status: 'connecting'; sessionId: string; planVersion: number }
   | { status: 'streaming'; sessionId: string; planVersion: number; plan: PartialPlan }
   | { status: 'review'; sessionId: string; planVersion: number; plan: PlanDocument; comments: CommentResponse[] }
+  | { status: 'acting'; sessionId: string; planVersion: number; plan: PlanDocument; run: ActionRun }
   | { status: 'error'; code: string; message: string }
 
 export interface PartialPlan {
@@ -27,6 +52,12 @@ export type SessionAction =
   | { type: 'LOAD_COMMENTS'; comments: CommentResponse[] }
   | { type: 'ADD_COMMENT'; comment: CommentResponse }
   | { type: 'MERGE_COMPLETED'; planVersion: number; plan: PlanDocument }
+  | { type: 'START_ACTING' }
+  | { type: 'WS_ACT_STEP_START'; index: number; step_id: string; title: string; tool: string; tool_args: Record<string, unknown> }
+  | { type: 'WS_ACT_TOOL_STDOUT'; step_id: string; chunk: string }
+  | { type: 'WS_ACT_TOOL_EXIT'; step_id: string; exit_code: number; ok: boolean }
+  | { type: 'WS_ACT_STEP_DONE'; step_id: string; ok: boolean; attempts: number; output: string; artifacts: string[]; thoughts: string[]; failure_reason: string | null; git_commit: string | null }
+  | { type: 'WS_ACT_PLAN_DONE'; total_steps: number; all_ok: boolean }
   | { type: 'RESET' }
 
 // ===== Reducer =====
@@ -109,7 +140,115 @@ export function sessionReducer(
         comments: [],
       }
 
+    case 'START_ACTING':
+      if (state.status !== 'review') return state
+      return {
+        status: 'acting',
+        sessionId: state.sessionId,
+        planVersion: state.planVersion,
+        plan: state.plan,
+        run: { status: 'running', allOk: null, error: null, steps: [] },
+      }
+
+    case 'WS_ACT_STEP_START':
+      if (state.status !== 'acting') return state
+      if (state.run.steps.some((s) => s.stepId === action.step_id)) return state
+      return {
+        ...state,
+        run: {
+          ...state.run,
+          steps: [
+            ...state.run.steps,
+            {
+              index: action.index,
+              stepId: action.step_id,
+              title: action.title,
+              tool: action.tool,
+              toolArgs: action.tool_args,
+              status: 'running',
+              stdout: '',
+              output: '',
+              exitCode: null,
+              attempts: 1,
+              artifacts: [],
+              thoughts: [],
+              failureReason: null,
+              gitCommit: null,
+            },
+          ],
+        },
+      }
+
+    case 'WS_ACT_TOOL_STDOUT':
+      if (state.status !== 'acting') return state
+      if (!state.run.steps.some((s) => s.stepId === action.step_id)) return state
+      return {
+        ...state,
+        run: {
+          ...state.run,
+          steps: state.run.steps.map((s) =>
+            s.stepId === action.step_id
+              ? { ...s, stdout: s.stdout + action.chunk }
+              : s,
+          ),
+        },
+      }
+
+    case 'WS_ACT_TOOL_EXIT':
+      if (state.status !== 'acting') return state
+      if (!state.run.steps.some((s) => s.stepId === action.step_id)) return state
+      return {
+        ...state,
+        run: {
+          ...state.run,
+          steps: state.run.steps.map((s) =>
+            s.stepId === action.step_id ? { ...s, exitCode: action.exit_code } : s,
+          ),
+        },
+      }
+
+    case 'WS_ACT_STEP_DONE':
+      if (state.status !== 'acting') return state
+      if (!state.run.steps.some((s) => s.stepId === action.step_id)) return state
+      return {
+        ...state,
+        run: {
+          ...state.run,
+          steps: state.run.steps.map((s) =>
+            s.stepId === action.step_id
+              ? {
+                  ...s,
+                  status: action.ok ? 'done' : 'failed',
+                  output: action.output,
+                  attempts: action.attempts,
+                  artifacts: action.artifacts,
+                  thoughts: action.thoughts,
+                  failureReason: action.failure_reason,
+                  gitCommit: action.git_commit,
+                }
+              : s,
+          ),
+        },
+      }
+
+    case 'WS_ACT_PLAN_DONE':
+      if (state.status !== 'acting') return state
+      return {
+        ...state,
+        run: { ...state.run, status: 'done', allOk: action.all_ok },
+      }
+
     case 'WS_ERROR':
+      if (state.status === 'acting') {
+        return {
+          ...state,
+          run: {
+            ...state.run,
+            status: 'failed',
+            error: `${action.code}: ${action.message}`,
+          },
+        }
+      }
       return { status: 'error', code: action.code, message: action.message }
 
     case 'RESET':

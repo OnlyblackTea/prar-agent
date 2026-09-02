@@ -12,6 +12,7 @@ import {
 } from './state/sessionReducer'
 import { SessionContext, type SessionContextValue } from './state/SessionContext'
 import { PlanStreamClient, type WSEvent } from './api/ws'
+import { ActStreamClient, actEventToAction } from './api/act'
 import { createSession, advanceToActing } from './api/sessions'
 import { createComment, listComments } from './api/comments'
 import { mergeReviews } from './api/merge'
@@ -28,6 +29,7 @@ import { ActionButton } from './components/ActionButton'
 import { ErrorBanner } from './components/ErrorBanner'
 import { CommentThreadPanel } from './components/CommentThreadPanel'
 import { MergeResultDrawer } from './components/MergeResultDrawer'
+import { ActionOutputPanel } from './components/ActionOutputPanel'
 import './App.css'
 
 function eventToAction(event: WSEvent) {
@@ -59,6 +61,7 @@ const EMPTY_DANGLING: ReadonlySet<string> = new Set()
 export default function App() {
   const [state, dispatch] = useReducer(sessionReducer, { status: 'idle' } as SessionState)
   const clientRef = useRef<PlanStreamClient | null>(null)
+  const actClientRef = useRef<ActStreamClient | null>(null)
   const editorRef = useRef<Editor | null>(null)
   const [pendingSel, setPendingSel] = useState<SelectionSnapshot | null>(null)
   const [mergeBusy, setMergeBusy] = useState(false)
@@ -74,8 +77,13 @@ export default function App() {
   const reviewPlanVersion = state.status === 'review' ? state.planVersion : 0
 
   // 稳定 doc 引用：只在展示文档变化时重算，避免每次 render 触发编辑器 setContent 重置选区/滚动。
+  // acting 期间 plan 视图保留在上方（设计 21 §4），故继续参与 currentPlan 派生。
   const currentPlan =
-    state.status === 'streaming' || state.status === 'review' ? state.plan : null
+    state.status === 'streaming' ||
+    state.status === 'review' ||
+    state.status === 'acting'
+      ? state.plan
+      : null
   const browsingHistory = viewingVersion !== null && historicPlan !== null
   const displayPlan = browsingHistory ? historicPlan : currentPlan
   const tiptapDoc = useMemo(
@@ -173,15 +181,34 @@ export default function App() {
     if (state.status !== 'review') return
     try {
       await advanceToActing(state.sessionId)
-      alert('进入 Action 阶段（M3 实现）')
-    } catch {
-      // error handled silently for now
+      dispatch({ type: 'START_ACTING' })
+      const client = new ActStreamClient()
+      actClientRef.current = client
+      client.connect(
+        state.sessionId,
+        (event) => {
+          const action = actEventToAction(event)
+          if (action) dispatch(action)
+        },
+        () => {
+          // plan.done/error 已把终态写入 run；意外断开保留已渲染内容
+        },
+        () => client.sendExecute(), // CONNECTING 时 send 会抛错，必须等 onopen（与 /plan 同模式）
+      )
+    } catch (err) {
+      dispatch({
+        type: 'WS_ERROR',
+        code: 'advance_failed',
+        message: err instanceof Error ? err.message : 'Unknown error',
+      })
     }
   }
 
   const handleReset = () => {
     clientRef.current?.close()
     clientRef.current = null
+    actClientRef.current?.close()
+    actClientRef.current = null
     dispatch({ type: 'RESET' })
   }
 
@@ -294,13 +321,21 @@ export default function App() {
 
   // ===== Derived state =====
 
-  const isBusy = state.status === 'connecting' || state.status === 'streaming'
-  const hasPlan = state.status === 'streaming' || state.status === 'review'
+  const isBusy =
+    state.status === 'connecting' ||
+    state.status === 'streaming' ||
+    state.status === 'acting'
+  const hasPlan =
+    state.status === 'streaming' ||
+    state.status === 'review' ||
+    state.status === 'acting'
   const isReview = state.status === 'review'
   const sessionId =
     state.status !== 'idle' && state.status !== 'error' ? state.sessionId : ''
   const nodes =
-    state.status === 'streaming' || state.status === 'review'
+    state.status === 'streaming' ||
+    state.status === 'review' ||
+    state.status === 'acting'
       ? state.plan.nodes
       : []
   const comments = isReview
@@ -383,6 +418,8 @@ export default function App() {
               onClick={handleAdvance}
             />
           )}
+
+          {state.status === 'acting' && <ActionOutputPanel run={state.run} />}
 
           {state.status === 'error' && (
             <ErrorBanner

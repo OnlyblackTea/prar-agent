@@ -772,3 +772,223 @@ main {
   color: #9ca3af;
   font-style: italic;
 }
+
+/* ===== M3-21 Action Output Panel ===== */
+
+.action-panel {
+  margin-top: 1.5rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+  overflow: hidden;
+}
+
+.action-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #f3f4f6;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.action-panel-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #111827;
+}
+
+.action-panel-status {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.2em 0.7em;
+  border-radius: 999px;
+}
+
+.action-panel-status.status-running {
+  background: #ecfdf5;
+  color: #047857;
+  animation: action-pulse 1.4s ease-in-out infinite;
+}
+
+.action-panel-status.status-done {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.action-panel-status.status-failed {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+@keyframes action-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.action-error-banner {
+  background: #fef2f2;
+  border-bottom: 1px solid #fecaca;
+  color: #991b1b;
+  padding: 0.6rem 1rem;
+  font-size: 0.85rem;
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+}
+
+.action-step-list {
+  max-height: 26rem;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.action-step {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.action-step-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.85rem;
+}
+
+.action-step-index {
+  color: #6b7280;
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+}
+
+.action-step-title {
+  font-weight: 600;
+  color: #111827;
+}
+
+.action-step-tool {
+  background: #eef2ff;
+  color: #4338ca;
+  padding: 0.1em 0.55em;
+  border-radius: 4px;
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.action-step-exit {
+  background: #1e1e2e;
+  color: #cdd6f4;
+  padding: 0.1em 0.55em;
+  border-radius: 4px;
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.action-step-badge {
+  font-weight: 700;
+}
+
+.badge-done {
+  color: #047857;
+}
+
+.badge-failed {
+  color: #b91c1c;
+}
+
+.badge-running {
+  color: #047857;
+  animation: action-pulse 1.4s ease-in-out infinite;
+}
+
+.action-copy {
+  margin-left: auto;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.action-copy:hover {
+  background: #f3f4f6;
+}
+
+.action-step .step-args {
+  margin: 0.6rem 0.8rem;
+}
+
+.step-log {
+  margin: 0.6rem 0.8rem;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  padding: 0.75rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  white-space: pre-wrap;
+  overflow-x: auto;
+  user-select: text;
+  min-height: 2rem;
+}
+
+.step-failure {
+  margin: 0 0.8rem 0.6rem;
+  color: #b91c1c;
+  font-size: 0.82rem;
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  white-space: pre-wrap;
+}
+
+.action-step-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0 0.8rem 0.6rem;
+  font-size: 0.78rem;
+  color: #6b7280;
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+}
+
+.action-git {
+  background: #fef3c7;
+  color: #92400e;
+  padding: 0.1em 0.55em;
+  border-radius: 4px;
+}
+
+.action-step-details {
+  border-top: 1px dashed #e5e7eb;
+  padding: 0.5rem 0.8rem;
+  font-size: 0.8rem;
+  color: #374151;
+}
+
+.action-step-details summary {
+  cursor: pointer;
+  color: #4f46e5;
+  font-weight: 600;
+}
+
+.action-step-details ul {
+  margin: 0.4rem 0;
+  padding-left: 1.2rem;
+}
+
+.action-summary {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  font-size: 0.85rem;
+  color: #374151;
+}
