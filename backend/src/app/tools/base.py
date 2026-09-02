@@ -16,7 +16,7 @@
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, Protocol
@@ -36,6 +36,8 @@ class ShellRunner(Protocol):
     """shell 命令执行入口。Task 16 sandbox 实现此协议（rlimit/超时/目录隔离/禁网）。
 
     cwd 为沙箱视角的相对路径（相对沙箱根）；None 表示沙箱根。
+    on_stdout：行级流式回调（Task 19 真流式），每行 decode 后先回调再收集；
+    None 表示不流式，ShellResult.stdout 仍返回全量文本。
     15 → 16 协议扩展见 docs/design/15-tool-abc-registry.md 设计变更章节。
     """
 
@@ -46,6 +48,7 @@ class ShellRunner(Protocol):
         timeout: float | None = None,
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
+        on_stdout: Callable[[str], Awaitable[None]] | None = None,
     ) -> ShellResult: ...
 
 
@@ -55,6 +58,12 @@ class StdoutEmitter(Protocol):
     async def emit(self, chunk: str) -> None: ...
 
 
+class EventEmitter(Protocol):
+    """工具结束事件（如 shell exit）。Task 19 由 dispatcher 装配。"""
+
+    async def emit(self, event: dict[str, Any]) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ExecContext:
     """工具执行上下文，由 dispatcher（Task 18）统一构造。
@@ -62,6 +71,7 @@ class ExecContext:
     - workdir：本 step 在沙箱内的隔离工作目录（沙箱视角的相对根）
     - run_shell：shell 工具的执行入口（必填，fs 类工具不用它但 ctx 统一携带）
     - emit_stdout：流式回调，未装配时为 None（Tool._emit 已处理 no-op）
+    - emit_event：工具结束事件回调，未装配时为 None（调用方自行判空跳过）
     """
 
     session_id: UUID
@@ -70,6 +80,7 @@ class ExecContext:
     workdir: Path
     run_shell: ShellRunner
     emit_stdout: StdoutEmitter | None = None
+    emit_event: EventEmitter | None = None
 
 
 class ToolResult(BaseModel):

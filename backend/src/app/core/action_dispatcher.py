@@ -13,6 +13,7 @@
 """
 
 import json
+from collections.abc import Awaitable
 from pathlib import Path
 from typing import Any, Protocol
 from uuid import UUID
@@ -76,6 +77,50 @@ class ActorProtocol(Protocol):
     async def decide(self, *, step: StepNode, observations: list[str]) -> ActorAction: ...
 
 
+class ActEventSink(Protocol):
+    """Task 19 流式事件接收端。sink=None 时全部跳过（18 调用方零改动）。"""
+
+    async def step_start(self, *, index: int, step: StepNode) -> None: ...
+    async def tool_stdout(self, *, step_id: str, chunk: str) -> None: ...
+    async def tool_exit(self, *, step_id: str, exit_code: int, ok: bool) -> None: ...
+    async def step_done(self, *, record: StepExecution) -> None: ...
+
+
+class _StdoutAdapter:
+    """工具侧 emit(chunk) 绑定 step_id 转发 sink；异常吞掉（观察通道不控制执行）。"""
+
+    def __init__(self, sink: ActEventSink, step_id: str) -> None:
+        self._sink = sink
+        self._step_id = step_id
+
+    async def emit(self, chunk: str) -> None:
+        try:
+            await self._sink.tool_stdout(step_id=self._step_id, chunk=chunk)
+        except Exception:
+            _log.warning("tool.stdout sink callback failed", exc_info=True)
+
+
+class _EventAdapter:
+    """工具侧 emit(event) 绑定 step_id 转发 sink；非 tool.exit 事件记 warning 忽略。"""
+
+    def __init__(self, sink: ActEventSink, step_id: str) -> None:
+        self._sink = sink
+        self._step_id = step_id
+
+    async def emit(self, event: dict[str, Any]) -> None:
+        if event.get("type") != "tool.exit":
+            _log.warning("unexpected tool event ignored: %s", event.get("type"))
+            return
+        try:
+            await self._sink.tool_exit(
+                step_id=self._step_id,
+                exit_code=event["exit_code"],
+                ok=event["ok"],
+            )
+        except Exception:
+            _log.warning("tool.exit sink callback failed", exc_info=True)
+
+
 # ===== Dispatcher =====
 
 
@@ -105,8 +150,13 @@ class ActionDispatcher:
         *,
         session_id: UUID,
         plan_version: int,
+        sink: ActEventSink | None = None,
     ) -> list[StepExecution]:
-        """按序执行 plan 的所有 Step 节点；step failed → fail-fast。"""
+        """按序执行 plan 的所有 Step 节点；step failed → fail-fast。
+
+        sink 装配后推 step.start / tool.stdout / tool.exit / step.done 事件；
+        事件回调异常只记 warning，不中断执行（观察通道不控制执行）。
+        """
         steps = [n for n in plan.nodes if isinstance(n, StepNode)]
         sandbox = Sandbox(
             self._sandbox_base / str(session_id),
@@ -117,6 +167,8 @@ class ActionDispatcher:
         records: list[StepExecution] = []
         for i, step in enumerate(steps):
             step_id = step.id or f"step_{i:03d}"
+            if sink is not None:
+                await self._emit_safely(sink.step_start(index=i, step=step))
             workdir = Path("steps") / step_id
             (sandbox.root / workdir).mkdir(parents=True, exist_ok=True)
             ctx = ExecContext(
@@ -125,12 +177,24 @@ class ActionDispatcher:
                 step_id=step_id,
                 workdir=workdir,
                 run_shell=sandbox,
+                emit_stdout=_StdoutAdapter(sink, step_id) if sink is not None else None,
+                emit_event=_EventAdapter(sink, step_id) if sink is not None else None,
             )
             record = await self._execute_step(step, ctx)
+            if sink is not None:
+                await self._emit_safely(sink.step_done(record=record))
             records.append(record)
             if not record.ok:
                 break
         return records
+
+    @staticmethod
+    async def _emit_safely(coro: Awaitable[None]) -> None:
+        """sink 回调异常吞掉记 warning：连接断开等不中断计划执行。"""
+        try:
+            await coro
+        except Exception:
+            _log.warning("sink callback failed", exc_info=True)
 
     async def _execute_step(self, step: StepNode, ctx: ExecContext) -> StepExecution:
         # 首轮（plan 驱动）：契约错误（未知工具 / 参数不符）→ step failed，不浪费 LLM 轮

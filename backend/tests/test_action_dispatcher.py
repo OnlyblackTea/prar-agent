@@ -1,4 +1,7 @@
-"""Action dispatcher 测试（FakeActor 注入，零真调 LLM；真实 Sandbox + 真实内置工具）。"""
+"""Action dispatcher 测试（FakeActor 注入，零真调 LLM；真实 Sandbox + 真实内置工具）。
+
+T18-T21（Task 19 流式管道）：FakeSink 记录事件序列，验证 sink 装配与 step_id 绑定。
+"""
 
 import sys
 from pathlib import Path
@@ -423,3 +426,103 @@ def test_create_default_dispatcher_registers_builtin(tmp_path: Path) -> None:
     router = AsyncMock()
     disp = create_default_dispatcher(router, _adapter())
     assert disp.registry.list_names() == ["shell", "fs.read", "fs.write"]
+
+
+# ===== T18-T21: 事件 sink（Task 19 流式管道） =====
+
+
+class FakeSink:
+    """ActEventSink 记录器：事件按发生顺序存 (name, payload) 二元组。"""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict[str, Any]]] = []
+
+    async def step_start(self, *, index: int, step: StepNode) -> None:
+        self.events.append(("step.start", {"index": index, "step": step}))
+
+    async def tool_stdout(self, *, step_id: str, chunk: str) -> None:
+        self.events.append(("tool.stdout", {"step_id": step_id, "chunk": chunk}))
+
+    async def tool_exit(self, *, step_id: str, exit_code: int, ok: bool) -> None:
+        self.events.append(
+            ("tool.exit", {"step_id": step_id, "exit_code": exit_code, "ok": ok})
+        )
+
+    async def step_done(self, *, record: StepExecution) -> None:
+        self.events.append(("step.done", {"record": record}))
+
+
+async def test_sink_full_event_sequence(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    """单 step 成功：step.start → tool.stdout → tool.exit → step.done 完整序列。"""
+    disp, _, _ = dispatcher
+    sink = FakeSink()
+    plan = make_plan(make_step("shell", {"command": _ECHO_OK}))
+    records = await disp.execute_plan(plan, session_id=uuid4(), plan_version=1, sink=sink)
+    assert len(records) == 1 and records[0].ok is True
+    names = [n for n, _ in sink.events]
+    assert names == ["step.start", "tool.stdout", "tool.exit", "step.done"]
+    start = dict(sink.events[0][1])
+    assert start["index"] == 0
+    assert start["step"].id == "step_001"
+    stdout_chunks = [d["chunk"] for n, d in sink.events if n == "tool.stdout"]
+    assert "".join(stdout_chunks).strip() == "hello17"
+    exit_ev = dict(sink.events[2][1])
+    assert exit_ev == {"step_id": "step_001", "exit_code": 0, "ok": True}
+    done = dict(sink.events[3][1])["record"]
+    assert done.step_id == "step_001"
+    assert done.ok is True
+    assert done.attempts == 1
+
+
+async def test_sink_step_id_binding_across_steps(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    """多 step：stdout 事件归属正确的 step_id；step.done 按执行顺序收齐。"""
+    disp, _, _ = dispatcher
+    sink = FakeSink()
+    # Windows cmd 中 / 开头的段会被当选项开关，路径必须全反斜杠
+    cat_prev = "type ..\\step_001\\a.txt" if IS_WIN else "cat ../step_001/a.txt"
+    plan = make_plan(
+        make_step("fs.write", {"path": "a.txt", "content": "first"}, step_id="step_001"),
+        make_step("shell", {"command": cat_prev}, step_id="step_002"),
+    )
+    records = await disp.execute_plan(plan, session_id=uuid4(), plan_version=1, sink=sink)
+    assert len(records) == 2 and all(r.ok for r in records)
+    starts = [d for n, d in sink.events if n == "step.start"]
+    assert [d["index"] for d in starts] == [0, 1]
+    stdout_events = [d for n, d in sink.events if n == "tool.stdout"]
+    assert stdout_events, "step_002 的 shell 应产生 stdout 事件"
+    assert all(d["step_id"] == "step_002" for d in stdout_events)
+    assert "first" in "".join(d["chunk"] for d in stdout_events)
+    done_ids = [d["record"].step_id for n, d in sink.events if n == "step.done"]
+    assert done_ids == ["step_001", "step_002"]
+
+
+async def test_no_sink_backwards_compatible(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    """sink=None：行为与 18 完全一致（18 的 17 个用例即回归网）。"""
+    disp, _, _ = dispatcher
+    plan = make_plan(make_step("shell", {"command": _ECHO_OK}))
+    records = await disp.execute_plan(plan, session_id=uuid4(), plan_version=1)
+    assert len(records) == 1
+    assert records[0].ok is True
+
+
+async def test_sink_emits_step_done_on_failure(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    """失败 step 同样推 step.done（ok=False 的 record 照常可达前端）。"""
+    disp, actor, _ = dispatcher
+    actor._actions = [_act(thought="无法修正", done=True)]
+    sink = FakeSink()
+    plan = make_plan(make_step("shell", {"command": _FAIL_CMD}))
+    records = await disp.execute_plan(plan, session_id=uuid4(), plan_version=1, sink=sink)
+    assert len(records) == 1
+    assert records[0].ok is False
+    done_events = [d for n, d in sink.events if n == "step.done"]
+    assert len(done_events) == 1
+    assert done_events[0]["record"].ok is False
+    assert done_events[0]["record"].failure_reason == "actor gave up"

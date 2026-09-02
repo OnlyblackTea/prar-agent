@@ -277,3 +277,46 @@ async def test_run_before_ensure_root(tmp_path: Path) -> None:
     sb = Sandbox(tmp_path / "not_created")
     r = await sb.run(_py("print('hi')"))
     assert r.exit_code != 0
+
+
+# ===== S22-S24: on_stdout 行级回调（Task 19 真流式管道） =====
+
+
+async def test_on_stdout_line_callbacks(sb: Sandbox) -> None:
+    """多行输出 → 回调序列 == 输出行；ShellResult.stdout 仍全量（字节级一致）。"""
+    chunks: list[str] = []
+
+    async def on_stdout(chunk: str) -> None:
+        chunks.append(chunk)
+
+    r = await sb.run(_py("print('a'); print('b')"), on_stdout=on_stdout)
+    assert r.exit_code == 0
+    assert [c.rstrip("\r\n") for c in chunks] == ["a", "b"]
+    assert r.stdout == "".join(chunks)
+
+
+async def test_on_stdout_timeout_residual_lines(sb: Sandbox) -> None:
+    """超时 kill 后残余行仍被回调（drain 期间回调仍在行循环内）。"""
+    chunks: list[str] = []
+
+    async def on_stdout(chunk: str) -> None:
+        chunks.append(chunk)
+
+    code = "import sys, time; print('before'); sys.stdout.flush(); time.sleep(10)"
+    r = await sb.run(_py(code), timeout=0.5, on_stdout=on_stdout)
+    assert r.exit_code == 124
+    assert [c.rstrip("\r\n") for c in chunks] == ["before"]
+
+
+async def test_on_stdout_callback_exception_swallowed(
+    sb: Sandbox, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """回调抛异常 → run 正常返回 + warning（观察通道不控制执行，Q10）。"""
+
+    async def bad_cb(chunk: str) -> None:
+        raise RuntimeError("sink down")
+
+    r = await sb.run(_py("print('a'); print('b')"), on_stdout=bad_cb)
+    assert r.exit_code == 0
+    assert r.stdout.strip().splitlines() == ["a", "b"]
+    assert any("on_stdout callback failed" in rec.message for rec in caplog.records)

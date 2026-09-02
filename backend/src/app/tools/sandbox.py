@@ -24,7 +24,7 @@ import logging
 import os
 import shutil
 import sys
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -268,6 +268,7 @@ class Sandbox:
         timeout: float | None = None,
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
+        on_stdout: Callable[[str], Awaitable[None]] | None = None,
     ) -> ShellResult:
         if not argv:
             raise ToolExecutionError("empty argv")
@@ -293,7 +294,7 @@ class Sandbox:
                 # spawn 失败（cwd 不存在等）→ 业务失败，LLM 可换参数重试
                 return ShellResult(exit_code=127, stdout="", stderr=f"sandbox spawn failed: {e}")
             assert proc.stdout is not None and proc.stderr is not None
-            read_out = asyncio.create_task(proc.stdout.read())
+            read_out = asyncio.create_task(self._read_lines(proc.stdout, on_stdout))
             read_err = asyncio.create_task(proc.stderr.read())
             wait_proc = asyncio.create_task(proc.wait())
             done, _ = await asyncio.wait({wait_proc}, timeout=eff_timeout)
@@ -379,6 +380,28 @@ class Sandbox:
                 if proc.returncode is None:
                     proc.kill()
         await proc.wait()
+
+    @staticmethod
+    async def _read_lines(
+        stream: asyncio.StreamReader,
+        on_stdout: Callable[[str], Awaitable[None]] | None,
+    ) -> bytes:
+        """行级读取：每行 decode 后先回调 on_stdout 再收集；返回全量字节（16/17 契约不变）。
+
+        回调异常吞掉记 warning：流式是观察通道非控制通道（Q10）。
+        超时 kill 后残余行仍在循环内继续回调。
+        """
+        collected: list[bytes] = []
+        while True:
+            line = await stream.readline()
+            if not line:
+                return b"".join(collected)
+            if on_stdout is not None:
+                try:
+                    await on_stdout(line.decode("utf-8", errors="replace"))
+                except Exception:
+                    _logger.warning("on_stdout callback failed", exc_info=True)
+            collected.append(line)
 
     @staticmethod
     async def _drain(task: asyncio.Task[bytes]) -> bytes:

@@ -2,15 +2,18 @@
 
 T4-T18 全部基于真实 Sandbox（tmp_path 沙箱根）+ 真实 ExecContext 实跑；
 命令/助手按平台分支（Windows cmd vs POSIX sh），双平台均真实执行不 mock。
+T19-T23（Task 19 流式管道）：FakeRunner / 发射器替身 + 真实沙箱端到端。
 """
 
 import sys
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
 
-from app.tools.base import ExecContext
+from app.tools.base import ExecContext, ShellResult, ShellRunner
 from app.tools.builtin import builtin_tools
 from app.tools.builtin.fs import FsReadArgs, FsReadTool, FsWriteArgs, FsWriteTool
 from app.tools.builtin.shell import ShellArgs, ShellTool
@@ -42,13 +45,14 @@ def sandbox(tmp_path: Path) -> Sandbox:
     return sb
 
 
-def _ctx(sb: Sandbox, workdir: str = ".") -> ExecContext:
+def _ctx(runner: ShellRunner, workdir: str = ".", **kw: Any) -> ExecContext:
     return ExecContext(
         session_id=uuid4(),
         plan_version=1,
         step_id="step_001",
         workdir=Path(workdir),
-        run_shell=sb,
+        run_shell=runner,
+        **kw,
     )
 
 
@@ -202,3 +206,92 @@ async def test_roundtrip_write_then_shell_cat(sandbox: Sandbox) -> None:
     r = await ShellTool().execute(ShellArgs(command=_cat_cmd("hello.txt")), _ctx(sandbox))
     assert r.ok is True
     assert "闭环协作" in r.output
+
+
+# ===== T19-T23: shell 流式装配（Task 19 真流式管道） =====
+
+
+class _StdoutEmitter:
+    def __init__(self) -> None:
+        self.chunks: list[str] = []
+
+    async def emit(self, chunk: str) -> None:
+        self.chunks.append(chunk)
+
+
+class _EventEmitter:
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+    async def emit(self, event: dict[str, Any]) -> None:
+        self.events.append(event)
+
+
+class _FakeRunner:
+    """ShellRunner 替身：按脚本逐行回调 on_stdout 并记录转发。"""
+
+    def __init__(self, exit_code: int = 0) -> None:
+        self._exit_code = exit_code
+        self.on_stdout_calls: list[str] = []
+
+    async def run(
+        self,
+        argv: Sequence[str],
+        *,
+        timeout: float | None = None,
+        env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+        on_stdout: Callable[[str], Awaitable[None]] | None = None,
+    ) -> ShellResult:
+        if on_stdout is not None:
+            for line in ("alpha\n", "beta\n"):
+                await on_stdout(line)
+                self.on_stdout_calls.append(line)
+        return ShellResult(exit_code=self._exit_code, stdout="alpha\nbeta\n", stderr="")
+
+
+async def test_shell_forwards_stdout_to_emitter() -> None:
+    """on_stdout 装配：FakeRunner 逐行回调 → ShellTool 转发 ctx.emit_stdout。"""
+    runner = _FakeRunner()
+    emitter = _StdoutEmitter()
+    ctx = _ctx(runner, emit_stdout=emitter)
+    r = await ShellTool().execute(ShellArgs(command="echo x"), ctx)
+    assert r.ok is True
+    assert runner.on_stdout_calls == ["alpha\n", "beta\n"]
+    assert emitter.chunks == ["alpha\n", "beta\n"]
+
+
+async def test_shell_emits_tool_exit_ok() -> None:
+    ev = _EventEmitter()
+    ctx = _ctx(_FakeRunner(), emit_event=ev)
+    r = await ShellTool().execute(ShellArgs(command="echo x"), ctx)
+    assert r.ok is True
+    assert ev.events == [{"type": "tool.exit", "exit_code": 0, "ok": True}]
+
+
+async def test_shell_emits_tool_exit_failure() -> None:
+    ev = _EventEmitter()
+    ctx = _ctx(_FakeRunner(exit_code=3), emit_event=ev)
+    r = await ShellTool().execute(ShellArgs(command=_FAIL_CMD), ctx)
+    assert r.ok is False
+    assert ev.events == [{"type": "tool.exit", "exit_code": 3, "ok": False}]
+
+
+async def test_shell_no_emit_assemblies_skipped() -> None:
+    """emit_stdout / emit_event 均未装配：安全 no-op，行为与 17 完全一致。"""
+    runner = _FakeRunner()
+    r = await ShellTool().execute(ShellArgs(command="echo x"), _ctx(runner))
+    assert r.ok is True
+    assert runner.on_stdout_calls == []
+
+
+async def test_shell_streams_with_real_sandbox(sandbox: Sandbox) -> None:
+    """真实沙箱端到端：行级回调 + tool.exit 事件。"""
+    emitter = _StdoutEmitter()
+    ev = _EventEmitter()
+    ctx = _ctx(sandbox, emit_stdout=emitter, emit_event=ev)
+    multi = "(echo a&echo b)" if IS_WIN else "echo a; echo b"
+    r = await ShellTool().execute(ShellArgs(command=multi), ctx)
+    assert r.ok is True
+    assert [c.rstrip("\r\n") for c in emitter.chunks] == ["a", "b"]
+    assert ev.events == [{"type": "tool.exit", "exit_code": 0, "ok": True}]

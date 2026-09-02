@@ -3,7 +3,7 @@
 所有用例不依赖 registry / 真实工具，FakeTool 只用于验证 ABC 契约。
 """
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from uuid import uuid4
@@ -68,6 +68,7 @@ class _FakeShell:
         timeout: float | None = None,
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
+        on_stdout: Callable[[str], Awaitable[None]] | None = None,
     ) -> ShellResult:
         return ShellResult(exit_code=0, stdout="", stderr="")
 
