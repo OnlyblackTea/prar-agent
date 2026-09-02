@@ -1,8 +1,10 @@
 """Action dispatcher 测试（FakeActor 注入，零真调 LLM；真实 Sandbox + 真实内置工具）。
 
 T18-T21（Task 19 流式管道）：FakeSink 记录事件序列，验证 sink 装配与 step_id 绑定。
+T22-T25（Task 20 Git checkpoint）：验证沙箱根内每成功 step 一 commit 的 git 历史。
 """
 
+import asyncio
 import sys
 from pathlib import Path
 from typing import Any, ClassVar
@@ -114,6 +116,24 @@ def dispatcher(tmp_path: Path) -> tuple[ActionDispatcher, FakeActor, Path]:
 def _act(**kwargs: Any) -> ActorAction:
     kwargs.setdefault("done", False)
     return ActorAction(**kwargs)
+
+
+async def _git(root: Path, *args: str) -> str:
+    """在沙箱根上跑 git CLI，断言成功并返回 stdout。"""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        cwd=root,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout_b, stderr_b = await proc.communicate()
+    assert proc.returncode == 0, stderr_b.decode(errors="replace")
+    return stdout_b.decode(errors="replace")
+
+
+def _subjects(log: str) -> list[str]:
+    return log.strip().splitlines()
 
 
 # ===== T1: 首轮成功 =====
@@ -526,3 +546,79 @@ async def test_sink_emits_step_done_on_failure(
     assert len(done_events) == 1
     assert done_events[0]["record"].ok is False
     assert done_events[0]["record"].failure_reason == "actor gave up"
+
+
+# ===== T22-T25: Git checkpoint（Task 20） =====
+
+
+async def test_checkpoint_success_step_committed(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    disp, _, base = dispatcher
+    session_id = uuid4()
+    plan = make_plan(make_step("fs.write", {"path": "out.txt", "content": "hello"}))
+    records = await disp.execute_plan(plan, session_id=session_id, plan_version=7)
+    rec = records[0]
+    assert rec.ok is True
+    commit = rec.git_commit
+    assert commit is not None
+    assert len(commit) == 40
+    root = base / str(session_id)
+    assert _subjects(await _git(root, "log", "--format=%s")) == [
+        "[prar:v7:step_001] step step_001",
+        "[prar:v7] init",
+    ]
+    shown = await _git(root, "show", f"{commit}:steps/step_001/out.txt")
+    assert shown == "hello"
+
+
+async def test_checkpoint_failed_step_not_committed(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    disp, actor, base = dispatcher
+    actor._actions = [_act(thought="无法修正", done=True)]
+    session_id = uuid4()
+    plan = make_plan(make_step("shell", {"command": _FAIL_CMD}))
+    records = await disp.execute_plan(plan, session_id=session_id, plan_version=1)
+    assert records[0].ok is False
+    assert records[0].git_commit is None
+    root = base / str(session_id)
+    assert _subjects(await _git(root, "log", "--format=%s")) == ["[prar:v1] init"]
+
+
+async def test_checkpoint_two_success_steps_two_commits(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    disp, _, base = dispatcher
+    session_id = uuid4()
+    plan = make_plan(
+        make_step("fs.write", {"path": "a.txt", "content": "a"}, step_id="step_001"),
+        make_step("fs.write", {"path": "b.txt", "content": "b"}, step_id="step_002"),
+    )
+    records = await disp.execute_plan(plan, session_id=session_id, plan_version=2)
+    assert all(r.ok for r in records)
+    assert all(r.git_commit is not None and len(r.git_commit) == 40 for r in records)
+    root = base / str(session_id)
+    assert _subjects(await _git(root, "log", "--format=%s")) == [
+        "[prar:v2:step_002] step step_002",
+        "[prar:v2:step_001] step step_001",
+        "[prar:v2] init",
+    ]
+
+
+async def test_checkpoint_second_execution_appends(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    disp, _, base = dispatcher
+    session_id = uuid4()
+    plan = make_plan(make_step("fs.write", {"path": "x.txt", "content": "x"}))
+    first = await disp.execute_plan(plan, session_id=session_id, plan_version=1)
+    second = await disp.execute_plan(plan, session_id=session_id, plan_version=1)
+    assert first[0].git_commit != second[0].git_commit
+    root = base / str(session_id)
+    assert _subjects(await _git(root, "log", "--format=%s")) == [
+        "[prar:v1:step_001] step step_001",
+        "[prar:v1] init",
+        "[prar:v1:step_001] step step_001",
+        "[prar:v1] init",
+    ]

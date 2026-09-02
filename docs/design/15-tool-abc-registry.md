@@ -371,3 +371,18 @@ cd backend && make typecheck     # mypy strict 零错误
   （Task 18 若需交互式 stdin 再走 §5 扩展）。
 - **落地**：`base.py` 协议原地更新（正文同步新签名）；`test_tools_base.py`
   的 `_FakeShell.run` 同步签名（mypy structural 兼容需要）。
+
+## 设计变更 (2026-09-03)
+
+> Task 20（Git checkpoint）落地时触发。
+
+### `ToolResult.git_commit` 预留字段不启用
+
+- **决策**：`ToolResult.git_commit`（本设计预留的「未来任务填」字段）**保持恒为
+  `None`**，不启用。commit hash 由 dispatcher 在工具返回之后调用 checkpoint
+  层产生，落 `StepExecution.git_commit`（见 18 号设计变更）。
+- **理由**：commit 时机在工具执行完成之后（需先判定 `ok=True`），工具层拿不到
+  也不该拿 checkpoint 依赖；且 ToolResult 由工具自身构造，回填会引入
+  工具→checkpoint 的反向耦合。
+- **影响**：15/17 的 `ToolResult` 语义不变；本设计正文中 `git_commit` 字段的
+  「Task 20 填」注释作废，保留字段仅作为 schema 占位。

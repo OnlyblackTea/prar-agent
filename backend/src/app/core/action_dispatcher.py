@@ -20,6 +20,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.core.checkpoint import GitCheckpoint
 from app.core.logging import get_logger
 from app.core.plan_schemas import PlanDocument, StepNode
 from app.llm.router import LLMRouter
@@ -69,6 +70,7 @@ class StepExecution(BaseModel):
     artifacts: list[Path] = Field(default_factory=list)
     thoughts: list[str] = Field(default_factory=list)
     failure_reason: str | None = None  # ok=False 时说明原因
+    git_commit: str | None = None  # Task 20 checkpoint：成功 step 的 40 位 commit hash
 
 
 class ActorProtocol(Protocol):
@@ -164,6 +166,8 @@ class ActionDispatcher:
             network=False,
         )
         sandbox.ensure_root()
+        checkpoint = GitCheckpoint(sandbox.root)
+        await checkpoint.init(plan_version=plan_version)
         records: list[StepExecution] = []
         for i, step in enumerate(steps):
             step_id = step.id or f"step_{i:03d}"
@@ -181,6 +185,11 @@ class ActionDispatcher:
                 emit_event=_EventAdapter(sink, step_id) if sink is not None else None,
             )
             record = await self._execute_step(step, ctx)
+            if record.ok:
+                commit = await checkpoint.commit_step(
+                    plan_version=plan_version, step_id=ctx.step_id, title=step.title,
+                )
+                record = record.model_copy(update={"git_commit": commit})
             if sink is not None:
                 await self._emit_safely(sink.step_done(record=record))
             records.append(record)

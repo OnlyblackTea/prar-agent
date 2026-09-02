@@ -205,3 +205,24 @@ def create_default_dispatcher(
 2. **rerunnable 同参拒绝与「轮次耗尽」测试的语义冲突**：shell 工具 `rerunnable=False`，T3 初版用与首轮相同参数的失败命令会被同参拒绝拦截（attempts 不增），导致测不到耗尽。T3 改用尾随空格等不同参数的失败命令绕开拒绝。
 3. **拒绝原因回灌观察**：修正轮校验拒绝（未知工具 / args 不符 / 同参重放）时，拒绝原因以 `[rejected]` 前缀追加进 observations 传给下一轮 decide——LLM 据此避免重提，测试断言第二轮观察含 [rejected] 标记。
 4. **ActorAction.done 必填**：pydantic 无默认值即必填，测试 helper `_act` 用 `setdefault("done", False)`。
+
+---
+
+## 设计变更 (2026-09-03)
+
+> Task 20（Git checkpoint）落地时触发。
+
+### `StepExecution` 增加 `git_commit` 字段 + 每成功 step 一 commit
+
+- **变更**：`StepExecution` 增加 `git_commit: str | None = None`；`execute_plan`
+  在 `sandbox.ensure_root()` 之后 `GitCheckpoint(sandbox.root).init(plan_version)`
+  建基线空 commit，每个 `ok=True` 的 step 在 `sink.step_done` 之前
+  `checkpoint.commit_step(...)` 并把 40 位 hash 写入 record。
+- **动机**：M3-20 要求每 step 一 commit，为 M4-26 局部 rerun
+  （`git revert <step_commit>`）铺路；`git_commit` 经 ws_act 的
+  `model_dump` 透传前端，零前端改动。
+- **语义**：失败 step 不 commit（`git_commit=None`）；成功但无文件变更仍
+  `--allow-empty` 提交（维持「每成功 step 恰一 commit」不变量）；git 缺失 /
+  超时 / 失败一律 `ToolExecutionError` 向上抛（环境故障停机红线不变）。
+- **落地**：`core/checkpoint.py` 新增 + `action_dispatcher.py` 三处修改；
+  `test_checkpoint.py`（C1-C10）+ `test_action_dispatcher.py` T22-T25。
