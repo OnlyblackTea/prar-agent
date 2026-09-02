@@ -88,10 +88,17 @@ def test_ws_returns_llm_transport_error(ws_client: TestClient) -> None:
         "connection failed", model_id="gpt-4"
     )
 
-    with patch(
-        "app.api.ws_plan._resolve_dependencies",
-        new_callable=AsyncMock,
-        return_value=(mock_adapter, mock_engine),
+    with (
+        patch(
+            "app.api.ws_plan._resolve_dependencies",
+            new_callable=AsyncMock,
+            return_value=(mock_adapter, mock_engine),
+        ),
+        patch(
+            "app.api.ws_plan._recall_ltm",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
     ):
         sid = uuid.uuid4()
         with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/plan") as ws:
@@ -111,10 +118,17 @@ def test_ws_returns_structured_output_error(ws_client: TestClient) -> None:
         "bad schema", model_id="gpt-4"
     )
 
-    with patch(
-        "app.api.ws_plan._resolve_dependencies",
-        new_callable=AsyncMock,
-        return_value=(mock_adapter, mock_engine),
+    with (
+        patch(
+            "app.api.ws_plan._resolve_dependencies",
+            new_callable=AsyncMock,
+            return_value=(mock_adapter, mock_engine),
+        ),
+        patch(
+            "app.api.ws_plan._recall_ltm",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
     ):
         sid = uuid.uuid4()
         with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/plan") as ws:
@@ -144,6 +158,11 @@ def test_ws_success_emits_full_event_sequence(ws_client: TestClient) -> None:
             "app.api.ws_plan.SessionService",
             return_value=mock_session_svc,
         ),
+        patch(
+            "app.api.ws_plan._recall_ltm",
+            new_callable=AsyncMock,
+            return_value=[],
+        ),
     ):
         sid = uuid.uuid4()
         with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/plan") as ws:
@@ -167,3 +186,80 @@ def test_ws_success_emits_full_event_sequence(ws_client: TestClient) -> None:
 
             assert events[-1]["type"] == "plan.done"
             assert events[-1]["total_nodes"] == 2
+
+
+# ===== T7: recall 命中注入 generate 的 ltm_recall =====
+
+
+def test_ws_injects_recalled_memories_into_generate(
+    ws_client: TestClient,
+) -> None:
+    plan = _mock_plan()
+    mock_adapter = MagicMock()
+    mock_engine = AsyncMock()
+    mock_engine.generate.return_value = plan
+    mock_session_svc = AsyncMock()
+    lines = ["[semantic|0.82|0.90] 用户偏好 React"]
+
+    with (
+        patch(
+            "app.api.ws_plan._resolve_dependencies",
+            new_callable=AsyncMock,
+            return_value=(mock_adapter, mock_engine),
+        ),
+        patch(
+            "app.api.ws_plan.SessionService",
+            return_value=mock_session_svc,
+        ),
+        patch(
+            "app.api.ws_plan._recall_ltm",
+            new_callable=AsyncMock,
+            return_value=lines,
+        ) as mock_recall,
+    ):
+        sid = uuid.uuid4()
+        with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/plan") as ws:
+            ws.send_json(_valid_msg())
+            while True:
+                try:
+                    ws.receive_json()
+                except Exception:
+                    break
+
+    mock_recall.assert_awaited_once()
+    assert mock_recall.await_args.kwargs["query"] == "build a web app"
+    assert mock_engine.generate.await_count == 1
+    assert mock_engine.generate.await_args.kwargs["ltm_recall"] == lines
+
+
+# ===== T8: recall embedding 失败 → embedding_failed =====
+
+
+def test_ws_returns_embedding_failed(ws_client: TestClient) -> None:
+    from app.core.embedding import EmbeddingTransportError
+
+    mock_adapter = MagicMock()
+    mock_engine = AsyncMock()
+
+    with (
+        patch(
+            "app.api.ws_plan._resolve_dependencies",
+            new_callable=AsyncMock,
+            return_value=(mock_adapter, mock_engine),
+        ),
+        patch(
+            "app.api.ws_plan._recall_ltm",
+            new_callable=AsyncMock,
+            side_effect=EmbeddingTransportError(
+                "embedding down", model_id="text-embedding-v1",
+            ),
+        ),
+    ):
+        sid = uuid.uuid4()
+        with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/plan") as ws:
+            ws.send_json(_valid_msg())
+            resp = ws.receive_json()
+            assert resp["type"] == "error"
+            assert resp["code"] == "embedding_failed"
+
+    mock_engine.generate.assert_not_awaited()

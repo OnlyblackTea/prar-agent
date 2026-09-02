@@ -8,13 +8,16 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.core.embedding import EmbeddingError, get_embedding_service
 from app.core.logging import get_logger, request_id_var
 from app.core.plan_engine import PlanEngine
 from app.core.ws_streamer import stream_plan
 from app.db.session import get_sessionmaker
 from app.llm.router import LLMError, LLMRouter, LLMTransportError, StructuredOutputError
 from app.llm.types import ResolvedAdapter
+from app.memory.recall import LtmRecall
 from app.services.adapter_service import AdapterNotFoundError, AdapterService
+from app.services.memory_service import MemoryService
 from app.services.session_service import SessionService
 
 _log = get_logger("ws_plan")
@@ -32,7 +35,6 @@ class GenerateMessage(BaseModel):
     type: str = Field(pattern="^generate$")
     init_request: str = Field(min_length=1)
     adapter_id: uuid.UUID
-    ltm_recall: list[str] = Field(default_factory=list)
     available_tools: list[str] | None = None
 
 
@@ -46,6 +48,11 @@ async def _resolve_dependencies(
     resolved = adapter_service.resolve(db_adapter)
     plan_engine = PlanEngine(router)
     return resolved, plan_engine
+
+
+async def _recall_ltm(db: AsyncSession, *, query: str) -> list[str]:
+    store = MemoryService(db, get_embedding_service())
+    return await LtmRecall(store).recall(query=query)
 
 
 async def _send_error(ws: WebSocket, code: str, message: str) -> None:
@@ -87,10 +94,16 @@ async def plan_websocket(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 return
 
             try:
+                ltm_recall = await _recall_ltm(db, query=msg.init_request)
+            except EmbeddingError as e:
+                await _send_error(websocket, "embedding_failed", str(e))
+                return
+
+            try:
                 plan = await plan_engine.generate(
                     init_request=msg.init_request,
                     adapter=adapter,
-                    ltm_recall=msg.ltm_recall,
+                    ltm_recall=ltm_recall,
                     available_tools=msg.available_tools,
                 )
             except LLMTransportError as e:

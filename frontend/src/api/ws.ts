@@ -58,7 +58,6 @@ export class PlanStreamClient {
   sendGenerate(params: {
     init_request: string
     adapter_id: string
-    ltm_recall?: string[]
     available_tools?: string[]
   }): void {
     this.ws?.send(JSON.stringify({ type: 'generate', ...params }))

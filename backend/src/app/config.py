@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     # M4 Consolidator 后台任务
     consolidator_interval_seconds: int = 3600
 
+    # M4 LTM recall（注入 planner 的三层记忆检索）
+    ltm_recall_min_score: float = 0.35
+    ltm_recall_top_n: int = 5
+    ltm_recall_half_life_days: float = 30.0
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
