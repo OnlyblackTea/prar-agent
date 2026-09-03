@@ -100,6 +100,10 @@ async def act_websocket(websocket: WebSocket, session_id: uuid.UUID) -> None:
                 await _send_error(websocket, "illegal_phase", str(session.phase))
                 return
 
+            pending_rerun: str | None = (session.metadata_json or {}).get(
+                "pending_rerun_from",
+            )
+
             try:
                 plan_row = await session_service.get_current_plan(session_id)
             except ValueError:
@@ -118,15 +122,23 @@ async def act_websocket(websocket: WebSocket, session_id: uuid.UUID) -> None:
 
             plan = PlanDocument.model_validate(plan_row.document)
             dispatcher = create_default_dispatcher(get_router(), adapter)
-            records = await dispatcher.execute_plan(
-                plan,
-                session_id=session_id,
-                plan_version=plan_row.version,
-                sink=WSActSink(websocket),
-            )
+            try:
+                records = await dispatcher.execute_plan(
+                    plan,
+                    session_id=session_id,
+                    plan_version=plan_row.version,
+                    sink=WSActSink(websocket),
+                    start_from=pending_rerun,
+                )
+            except Exception:
+                if pending_rerun is not None:
+                    # rerun 中断：回 action_review 并保留 pending，用户再点即可重试
+                    session.phase = Phase.ACTION_REVIEW.value
+                    await db.commit()
+                raise
 
-            session.metadata_json = {
-                **session.metadata_json,
+            metadata = {
+                **(session.metadata_json or {}),
                 "last_run": {
                     "plan_version": plan_row.version,
                     "all_ok": all(r.ok for r in records),
@@ -140,6 +152,8 @@ async def act_websocket(websocket: WebSocket, session_id: uuid.UUID) -> None:
                     ],
                 },
             }
+            metadata.pop("pending_rerun_from", None)
+            session.metadata_json = metadata
             transition(
                 Phase(session.phase), Phase.ACTION_REVIEW, session_id=str(session_id),
             )

@@ -8,7 +8,7 @@ import asyncio
 import sys
 from pathlib import Path
 from typing import Any, ClassVar
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -21,6 +21,7 @@ from app.core.action_dispatcher import (
     StepExecution,
     create_default_dispatcher,
 )
+from app.core.checkpoint import GitCheckpoint
 from app.core.plan_schemas import PlanDocument, StepNode
 from app.llm.types import ResolvedAdapter
 from app.tools.base import ExecContext, Tool, ToolExecutionError, ToolResult
@@ -616,9 +617,106 @@ async def test_checkpoint_second_execution_appends(
     second = await disp.execute_plan(plan, session_id=session_id, plan_version=1)
     assert first[0].git_commit != second[0].git_commit
     root = base / str(session_id)
+    # Task 26 D3：.git 已存在 → 跳过 init，不追加新基线
     assert _subjects(await _git(root, "log", "--format=%s")) == [
         "[prar:v1:step_001] step step_001",
-        "[prar:v1] init",
         "[prar:v1:step_001] step step_001",
         "[prar:v1] init",
+    ]
+
+
+# ===== T26-T29: start_from（Task 26 局部 rerun） =====
+
+
+async def test_start_from_skips_earlier_steps(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    disp, actor, base = dispatcher
+    session_id = uuid4()
+    plan = make_plan(
+        make_step("fs.write", {"path": "a.txt", "content": "a"}, step_id="step_001"),
+        make_step("fs.write", {"path": "b.txt", "content": "b"}, step_id="step_002"),
+        make_step("fs.write", {"path": "c.txt", "content": "c"}, step_id="step_003"),
+    )
+    sink = FakeSink()
+    records = await disp.execute_plan(
+        plan, session_id=session_id, plan_version=1, sink=sink, start_from="step_002",
+    )
+    assert [r.step_id for r in records] == ["step_002", "step_003"]
+    assert all(r.ok for r in records)
+    assert actor.calls == []
+    root = base / str(session_id)
+    # 前置 step 不执行：无 workdir、无事件、无 commit
+    assert not (root / "steps" / "step_001").exists()
+    assert [d["index"] for n, d in sink.events if n == "step.start"] == [1, 2]
+    assert _subjects(await _git(root, "log", "--format=%s")) == [
+        "[prar:v1:step_003] step step_003",
+        "[prar:v1:step_002] step step_002",
+        "[prar:v1] init",
+    ]
+
+
+async def test_start_from_triggers_rollback_with_args(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    disp, _, _ = dispatcher
+    session_id = uuid4()
+    plan = make_plan(
+        make_step("fs.write", {"path": "a.txt", "content": "a"}, step_id="step_001"),
+        make_step("fs.write", {"path": "b.txt", "content": "b"}, step_id="step_002"),
+    )
+    rollback = AsyncMock(return_value=0)
+    with patch("app.core.checkpoint.GitCheckpoint.rollback_to", rollback):
+        await disp.execute_plan(
+            plan, session_id=session_id, plan_version=3, start_from="step_002",
+        )
+    rollback.assert_awaited_once()
+    assert rollback.await_args.kwargs == {"plan_version": 3, "step_id": "step_002"}
+
+
+async def test_existing_git_skips_init(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    disp, _, base = dispatcher
+    session_id = uuid4()
+    root = base / str(session_id)
+    root.mkdir(parents=True)
+    # 外部预 init（版本 9 的基线）；execute_plan 不应追加 v1 基线
+    await GitCheckpoint(root).init(plan_version=9)
+    plan = make_plan(make_step("fs.write", {"path": "x.txt", "content": "x"}))
+    records = await disp.execute_plan(plan, session_id=session_id, plan_version=1)
+    assert len(records) == 1 and records[0].ok is True
+    assert _subjects(await _git(root, "log", "--format=%s")) == [
+        "[prar:v1:step_001] step step_001",
+        "[prar:v9] init",
+    ]
+
+
+async def test_start_from_unknown_step_raises(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    disp, _, _ = dispatcher
+    plan = make_plan(make_step("fs.write", {"path": "a.txt", "content": "a"}))
+    with pytest.raises(ValueError, match="step_999"):
+        await disp.execute_plan(
+            plan, session_id=uuid4(), plan_version=1, start_from="step_999",
+        )
+
+
+async def test_start_from_none_full_execution(
+    dispatcher: tuple[ActionDispatcher, FakeActor, Path],
+) -> None:
+    disp, _, base = dispatcher
+    session_id = uuid4()
+    plan = make_plan(
+        make_step("fs.write", {"path": "a.txt", "content": "a"}, step_id="step_001"),
+        make_step("fs.write", {"path": "b.txt", "content": "b"}, step_id="step_002"),
+    )
+    records = await disp.execute_plan(plan, session_id=session_id, plan_version=2)
+    assert [r.step_id for r in records] == ["step_001", "step_002"]
+    root = base / str(session_id)
+    assert _subjects(await _git(root, "log", "--format=%s")) == [
+        "[prar:v2:step_002] step step_002",
+        "[prar:v2:step_001] step step_001",
+        "[prar:v2] init",
     ]

@@ -153,13 +153,20 @@ class ActionDispatcher:
         session_id: UUID,
         plan_version: int,
         sink: ActEventSink | None = None,
+        start_from: str | None = None,
     ) -> list[StepExecution]:
         """按序执行 plan 的所有 Step 节点；step failed → fail-fast。
 
         sink 装配后推 step.start / tool.stdout / tool.exit / step.done 事件；
         事件回调异常只记 warning，不中断执行（观察通道不控制执行）。
+
+        start_from（Task 26 局部 rerun）：先 git revert 回退到该 step 执行前，
+        再从该 step 跑到末尾；前置 step 不执行、不发事件、不建 workdir。
         """
         steps = [n for n in plan.nodes if isinstance(n, StepNode)]
+        start_index = (
+            0 if start_from is None else self._resolve_start_index(steps, start_from)
+        )
         sandbox = Sandbox(
             self._sandbox_base / str(session_id),
             limits=self._limits,
@@ -167,9 +174,15 @@ class ActionDispatcher:
         )
         sandbox.ensure_root()
         checkpoint = GitCheckpoint(sandbox.root)
-        await checkpoint.init(plan_version=plan_version)
+        # rerun 复用既有 repo：.git 已在则不再追加基线
+        if not (sandbox.root / ".git").exists():
+            await checkpoint.init(plan_version=plan_version)
+        if start_from is not None:
+            await checkpoint.rollback_to(plan_version=plan_version, step_id=start_from)
         records: list[StepExecution] = []
         for i, step in enumerate(steps):
+            if i < start_index:
+                continue
             step_id = step.id or f"step_{i:03d}"
             if sink is not None:
                 await self._emit_safely(sink.step_start(index=i, step=step))
@@ -196,6 +209,14 @@ class ActionDispatcher:
             if not record.ok:
                 break
         return records
+
+    @staticmethod
+    def _resolve_start_index(steps: list[StepNode], start_from: str) -> int:
+        """定位 start_from 对应的 step 下标；id 规则与执行循环一致。"""
+        for i, step in enumerate(steps):
+            if (step.id or f"step_{i:03d}") == start_from:
+                return i
+        raise ValueError(f"start_from step not in plan: {start_from!r}")
 
     @staticmethod
     async def _emit_safely(coro: Awaitable[None]) -> None:

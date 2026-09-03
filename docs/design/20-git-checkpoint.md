@@ -224,3 +224,17 @@ execute_plan
 3. **C8 spawn 失败**：`repo_root` 指向文件路径 → git spawn 抛 OSError → 消息含 "git spawn failed"（与超时分支分离，双错误契约）。
 4. **T25 同 session 二次执行**：第二次 `execute_plan` 按 init 幂等语义追加第二条基线 + 新 step commit，两次执行 `git_commit` 不同（hash 含时间戳），无交叉污染。
 5. **hash 落点验证**：T22 `git show {commit}:steps/step_001/out.txt` 内容一致——证明 commit 捕获的是工具执行后的完整工作树。
+
+---
+
+## 设计变更（2026-09-04，来自 M4-26 局部 rerun）
+
+**作废的契约**：本文档「验收标准 1」与 C10 承诺的 `git log --grep <step_id>` **可唯一定位** step commit，在引入局部 rerun 后不再成立。
+
+- 原因：rerun 走 `git revert`（保留历史），同一 step_id 会同时存在「原 commit」和「`Revert "[prar:v{n}:{sid}] ..."`」两条记录；多轮 rerun 后重跑产生的新 commit 再叠加一条，`--grep` 命中数 ≥ 2。
+- C10 本身仍绿：它只在「单次执行、无 rerun」的仓库上断言命中 1 条，属于该场景的回归保护，不再代表通用保证。
+- 26 号实际定位方式：`GitCheckpoint.rollback_to` 全量扫 `git log --format=%H%x00%s`，用 `_step_id_of` 同时解析普通主题与 `Revert "..."` 主题，已解析出的 step_id 进 `reverted` 集合抵消，遇目标 step_id 停止收集 → 天然幂等（二次调用返回 0）。
+- `last_run.steps[].git_commit`（DB）降级为**用户可见的审计留痕**，不参与 revert 定位。
+- 仍然有效的契约：message 格式 `[prar:v{plan_version}:{step_id}] {title}`、每成功 step 恰一 commit、失败 step 无 commit、基线空 commit（revert 根提交需要父）。
+
+后续任务若需按 step 定位 commit，走 `rollback_to` / `_step_id_of`，不要直接用 `--grep`。

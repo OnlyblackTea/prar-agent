@@ -53,6 +53,7 @@ class _ScriptedDispatcher:
         session_id: uuid.UUID,
         plan_version: int,
         sink: Any = None,
+        start_from: str | None = None,
     ) -> list[StepExecution]:
         assert sink is not None
         step = plan.nodes[0]
@@ -204,3 +205,115 @@ def test_ws_act_tool_execution_error_internal(ws_client: TestClient) -> None:
             resp = ws.receive_json()
             assert resp["type"] == "error"
             assert resp["code"] == "internal"
+
+
+# ===== W10-W12: pending_rerun_from 消费（Task 26 局部 rerun） =====
+
+
+def _ok_record() -> StepExecution:
+    return StepExecution(
+        step_id="step_000", ok=True, attempts=1, output="exit_code=0",
+        git_commit="a" * 40,
+    )
+
+
+def test_ws_act_consumes_pending_rerun(ws_client: TestClient) -> None:
+    sid = uuid.uuid4()
+    session = _acting_session(sid)
+    session.metadata_json = {"pending_rerun_from": "step_000"}
+    mock_svc = AsyncMock()
+    mock_svc.get.return_value = session
+    mock_svc.get_current_plan.return_value = _mock_plan_row(version=3)
+    mock_adapter_svc = MagicMock()
+    mock_adapter_svc.get = AsyncMock(return_value=MagicMock())
+    mock_adapter_svc.resolve = MagicMock(return_value=MagicMock())
+    dispatcher = AsyncMock()
+    dispatcher.execute_plan.return_value = [_ok_record()]
+
+    with (
+        patch("app.api.ws_act.SessionService", return_value=mock_svc),
+        patch("app.api.ws_act.AdapterService", return_value=mock_adapter_svc),
+        patch("app.api.ws_act.create_default_dispatcher", return_value=dispatcher),
+        patch("app.api.ws_act.get_router", return_value=MagicMock()),
+    ):
+        with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/act") as ws:
+            ws.send_json(_execute_msg())
+            resp = ws.receive_json()
+            assert resp["type"] == "plan.done"
+            assert resp["all_ok"] is True
+
+    kwargs = dispatcher.execute_plan.await_args.kwargs
+    assert kwargs["start_from"] == "step_000"
+    assert kwargs["plan_version"] == 3
+    assert session.phase == "action_review"
+    # last_run 覆盖 + pending 删除
+    assert session.metadata_json == {
+        "last_run": {
+            "plan_version": 3,
+            "all_ok": True,
+            "steps": [{"step_id": "step_000", "ok": True, "git_commit": "a" * 40}],
+        }
+    }
+
+
+def test_ws_act_no_pending_full_path(ws_client: TestClient) -> None:
+    sid = uuid.uuid4()
+    session = _acting_session(sid)
+    mock_svc = AsyncMock()
+    mock_svc.get.return_value = session
+    mock_svc.get_current_plan.return_value = _mock_plan_row(version=2)
+    mock_adapter_svc = MagicMock()
+    mock_adapter_svc.get = AsyncMock(return_value=MagicMock())
+    mock_adapter_svc.resolve = MagicMock(return_value=MagicMock())
+    dispatcher = AsyncMock()
+    dispatcher.execute_plan.return_value = [_ok_record()]
+
+    with (
+        patch("app.api.ws_act.SessionService", return_value=mock_svc),
+        patch("app.api.ws_act.AdapterService", return_value=mock_adapter_svc),
+        patch("app.api.ws_act.create_default_dispatcher", return_value=dispatcher),
+        patch("app.api.ws_act.get_router", return_value=MagicMock()),
+    ):
+        with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/act") as ws:
+            ws.send_json(_execute_msg())
+            resp = ws.receive_json()
+            assert resp["type"] == "plan.done"
+
+    assert dispatcher.execute_plan.await_args.kwargs["start_from"] is None
+    assert session.metadata_json == {
+        "last_run": {
+            "plan_version": 2,
+            "all_ok": True,
+            "steps": [{"step_id": "step_000", "ok": True, "git_commit": "a" * 40}],
+        }
+    }
+
+
+def test_ws_act_pending_failure_rolls_back_phase(ws_client: TestClient) -> None:
+    sid = uuid.uuid4()
+    session = _acting_session(sid)
+    session.metadata_json = {"pending_rerun_from": "step_000"}
+    mock_svc = AsyncMock()
+    mock_svc.get.return_value = session
+    mock_svc.get_current_plan.return_value = _mock_plan_row(version=2)
+    mock_adapter_svc = MagicMock()
+    mock_adapter_svc.get = AsyncMock(return_value=MagicMock())
+    mock_adapter_svc.resolve = MagicMock(return_value=MagicMock())
+    dispatcher = AsyncMock()
+    dispatcher.execute_plan.side_effect = ToolExecutionError("boom")
+
+    with (
+        patch("app.api.ws_act.SessionService", return_value=mock_svc),
+        patch("app.api.ws_act.AdapterService", return_value=mock_adapter_svc),
+        patch("app.api.ws_act.create_default_dispatcher", return_value=dispatcher),
+        patch("app.api.ws_act.get_router", return_value=MagicMock()),
+    ):
+        with ws_client.websocket_connect(f"/api/ws/sessions/{sid}/act") as ws:
+            ws.send_json(_execute_msg())
+            resp = ws.receive_json()
+            assert resp["type"] == "error"
+            assert resp["code"] == "internal"
+
+    # D5：phase 回 action_review，pending 保留（重试安全）
+    assert session.phase == "action_review"
+    assert session.metadata_json.get("pending_rerun_from") == "step_000"

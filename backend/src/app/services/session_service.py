@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.merger_schemas import MergerResult
-from app.core.plan_schemas import PlanDocument
+from app.core.plan_schemas import PlanDocument, StepNode
 from app.core.review_merger import ReviewMerger
 from app.core.state_machine import Phase, transition
 from app.db import models
@@ -272,6 +272,36 @@ class SessionService:
         s.phase = new_phase.value
         await self._db.flush()
         _log.info("session_advanced", session_id=str(session_id), new_phase=s.phase)
+        return s
+
+    async def request_rerun(
+        self, *, session_id: UUID, step_id: str,
+    ) -> models.Session:
+        """ACTION_REVIEW → ACTING：登记 pending_rerun_from，由 WS /act 消费执行回退。
+
+        校验顺序即 D4 矩阵：phase → last_run → plan 节点 → 已执行 step。
+        """
+        s = await self.get(session_id)
+        new_phase = transition(
+            Phase(s.phase), Phase.ACTING, session_id=str(session_id),
+        )
+        run = _parse_run_summary(s.metadata_json or {})
+        if run is None:
+            raise ValueError("no_run")
+        plan = PlanDocument.model_validate(
+            (await self.get_current_plan(session_id)).document,
+        )
+        steps = [n for n in plan.nodes if isinstance(n, StepNode)]
+        if step_id not in {n.id or f"step_{i:03d}" for i, n in enumerate(steps)}:
+            raise ValueError("step_not_found")
+        if step_id not in {st.step_id for st in run.steps}:
+            raise ValueError("step_not_executed")
+        s.metadata_json = {**(s.metadata_json or {}), "pending_rerun_from": step_id}
+        s.phase = new_phase.value
+        await self._db.flush()
+        _log.info(
+            "rerun_requested", session_id=str(session_id), rerun_from=step_id,
+        )
         return s
 
     async def complete(

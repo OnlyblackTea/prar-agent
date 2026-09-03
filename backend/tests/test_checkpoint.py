@@ -1,7 +1,7 @@
 """Task 20 GitCheckpoint 测试（真实 git CLI 集成测试，tmp_path 隔离）。
 
-宿主 gitconfig 隔离：autouse fixture 把 GIT_CONFIG_* 全部指向不存在的路径，
-保证 C6 身份断言只验证 checkpoint 自身的 `-c user.*` 注入，不受开发机配置影响。
+宿主 gitconfig 隔离见 tests/conftest.py 的 autouse fixture（GIT_CONFIG_* 指向
+不存在的路径），保证 C6 身份断言只验证 checkpoint 自身的 `-c user.*` 注入。
 """
 
 import asyncio
@@ -12,13 +12,6 @@ import pytest
 
 from app.core.checkpoint import GitCheckpoint
 from app.tools.base import ToolExecutionError
-
-
-@pytest.fixture(autouse=True)
-def _isolate_host_gitconfig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "missing-global"))
-    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(tmp_path / "missing-system"))
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 
 @pytest.fixture
@@ -150,3 +143,89 @@ async def test_grep_locates_step_commit(ck: GitCheckpoint, repo: Path) -> None:
     await ck.commit_step(plan_version=1, step_id="step_002", title="b")
     hits = _subjects(await _git(repo, "log", "--format=%H", "--grep=step_001"))
     assert hits == [first]
+
+
+# ===== C11-C14: rollback_to（Task 26 局部 rerun） =====
+
+
+def _write_step_file(repo: Path, step_id: str, name: str, content: str) -> None:
+    target = repo / "steps" / step_id / name
+    target.parent.mkdir(parents=True)
+    target.write_text(content, encoding="utf-8")
+
+
+async def test_rollback_to_success_step_reverts(ck: GitCheckpoint, repo: Path) -> None:
+    await ck.init(plan_version=1)
+    _write_step_file(repo, "step_001", "a.txt", "a")
+    await ck.commit_step(plan_version=1, step_id="step_001", title="a")
+    _write_step_file(repo, "step_002", "b.txt", "b")
+    await ck.commit_step(plan_version=1, step_id="step_002", title="b")
+
+    count = await ck.rollback_to(plan_version=1, step_id="step_001")
+
+    assert count == 2  # step_002 + step_001 两条
+    assert not (repo / "steps" / "step_001" / "a.txt").exists()
+    assert not (repo / "steps" / "step_002" / "b.txt").exists()
+    subjects = _subjects(await _git(repo, "log", "--format=%s"))
+    assert subjects == [
+        'Revert "[prar:v1:step_001] a"',
+        'Revert "[prar:v1:step_002] b"',
+        "[prar:v1:step_002] b",
+        "[prar:v1:step_001] a",
+        "[prar:v1] init",
+    ]
+
+
+async def test_rollback_to_failed_step_cleans_only(
+    ck: GitCheckpoint, repo: Path,
+) -> None:
+    await ck.init(plan_version=1)
+    _write_step_file(repo, "step_001", "a.txt", "a")
+    await ck.commit_step(plan_version=1, step_id="step_001", title="a")
+    # step_002 失败：只留下未提交残留，无 commit
+    _write_step_file(repo, "step_002", "junk.txt", "junk")
+
+    count = await ck.rollback_to(plan_version=1, step_id="step_002")
+
+    assert count == 0
+    assert not (repo / "steps" / "step_002" / "junk.txt").exists()  # clean 掉残留
+    assert (repo / "steps" / "step_001" / "a.txt").exists()  # 成功 step 不动
+    subjects = _subjects(await _git(repo, "log", "--format=%s"))
+    assert subjects == ["[prar:v1:step_001] a", "[prar:v1] init"]
+
+
+async def test_rollback_to_idempotent(ck: GitCheckpoint, repo: Path) -> None:
+    await ck.init(plan_version=1)
+    _write_step_file(repo, "step_001", "a.txt", "a")
+    await ck.commit_step(plan_version=1, step_id="step_001", title="a")
+    _write_step_file(repo, "step_002", "b.txt", "b")
+    await ck.commit_step(plan_version=1, step_id="step_002", title="b")
+
+    first = await ck.rollback_to(plan_version=1, step_id="step_001")
+    second = await ck.rollback_to(plan_version=1, step_id="step_001")
+
+    assert first == 2
+    assert second == 0
+    subjects = _subjects(await _git(repo, "log", "--format=%s"))
+    # 第二次不产生任何新 commit
+    assert subjects[0] == 'Revert "[prar:v1:step_001] a"'
+    assert len(subjects) == 5
+
+
+async def test_rollback_revert_conflict_raises(
+    ck: GitCheckpoint, repo: Path,
+) -> None:
+    await ck.init(plan_version=1)
+    _write_step_file(repo, "step_001", "a.txt", "v1")
+    await ck.commit_step(plan_version=1, step_id="step_001", title="a")
+    # 手动改写并提交（message 无 step 前缀 → 不被收集，但制造 revert 冲突）
+    (repo / "steps" / "step_001" / "a.txt").write_text("v3", encoding="utf-8")
+    await _git(
+        repo,
+        "-c", "user.name=user",
+        "-c", "user.email=u@e",
+        "commit", "-am", "user edit",
+    )
+
+    with pytest.raises(ToolExecutionError, match="revert"):
+        await ck.rollback_to(plan_version=1, step_id="step_001")

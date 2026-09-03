@@ -76,6 +76,15 @@ class AdvanceToActingResponse(BaseModel):
     phase: str
 
 
+class RerunRequest(BaseModel):
+    step_id: str
+
+
+class RerunResponse(BaseModel):
+    phase: str
+    rerun_from: str
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
@@ -234,6 +243,30 @@ async def advance_to_acting(
             status_code=409, detail="illegal_phase_transition",
         ) from e
     return AdvanceToActingResponse(phase=s.phase)
+
+
+@router.post("/{session_id}/rerun", response_model=RerunResponse)
+async def rerun_session(
+    session_id: UUID,
+    payload: RerunRequest,
+    service: SessionService = Depends(get_session_service),
+) -> RerunResponse:
+    """登记局部 rerun；实际回退与重跑由 WS /act 消费 pending_rerun_from 执行。"""
+    try:
+        s = await service.request_rerun(
+            session_id=session_id, step_id=payload.step_id,
+        )
+    except SessionNotFoundError as e:
+        raise HTTPException(status_code=404, detail="session_not_found") from e
+    except InvalidTransitionError as e:
+        raise HTTPException(
+            status_code=409, detail="illegal_phase_transition",
+        ) from e
+    except ValueError as e:
+        msg = str(e)
+        status = 409 if msg == "no_run" else 404
+        raise HTTPException(status_code=status, detail=msg) from e
+    return RerunResponse(phase=s.phase, rerun_from=payload.step_id)
 
 
 @router.post("/{session_id}/complete", response_model=SessionResponse)
