@@ -32,6 +32,8 @@ export type SessionState =
   | { status: 'streaming'; sessionId: string; planVersion: number; plan: PartialPlan }
   | { status: 'review'; sessionId: string; planVersion: number; plan: PlanDocument; comments: CommentResponse[] }
   | { status: 'acting'; sessionId: string; planVersion: number; plan: PlanDocument; run: ActionRun }
+  | { status: 'action_review'; sessionId: string; planVersion: number; plan: PlanDocument; run: ActionRun; comments: CommentResponse[] }
+  | { status: 'done'; sessionId: string }
   | { status: 'error'; code: string; message: string }
 
 export interface PartialPlan {
@@ -58,6 +60,8 @@ export type SessionAction =
   | { type: 'WS_ACT_TOOL_EXIT'; step_id: string; exit_code: number; ok: boolean }
   | { type: 'WS_ACT_STEP_DONE'; step_id: string; ok: boolean; attempts: number; output: string; artifacts: string[]; thoughts: string[]; failure_reason: string | null; git_commit: string | null }
   | { type: 'WS_ACT_PLAN_DONE'; total_steps: number; all_ok: boolean }
+  | { type: 'START_RERUN'; fromStepId: string }
+  | { type: 'SESSION_COMPLETED' }
   | { type: 'RESET' }
 
 // ===== Reducer =====
@@ -120,21 +124,23 @@ export function sessionReducer(
       }
 
     case 'LOAD_COMMENTS':
-      if (state.status !== 'review') return state
+      if (state.status !== 'review' && state.status !== 'action_review') return state
       return { ...state, comments: action.comments }
 
     case 'ADD_COMMENT':
-      if (state.status !== 'review') return state
+      if (state.status !== 'review' && state.status !== 'action_review') return state
       return {
         ...state,
         comments: [...state.comments, action.comment],
       }
 
     case 'MERGE_COMPLETED':
-      if (state.status !== 'review') return state
-      // comments 清空，等 App 的 useEffect 自动 listComments(v{N+1}) 补
+      if (state.status !== 'review' && state.status !== 'action_review') return state
+      // comments 清空，等 App 的 useEffect 自动 listComments(v{N+1}) 补。
+      // 从 action_review 来时后端已两跳到 plan_review（27 号 D4），故落回 review。
       return {
-        ...state,
+        status: 'review',
+        sessionId: state.sessionId,
         planVersion: action.planVersion,
         plan: action.plan,
         comments: [],
@@ -234,9 +240,36 @@ export function sessionReducer(
     case 'WS_ACT_PLAN_DONE':
       if (state.status !== 'acting') return state
       return {
-        ...state,
+        status: 'action_review',
+        sessionId: state.sessionId,
+        planVersion: state.planVersion,
+        plan: state.plan,
         run: { ...state.run, status: 'done', allOk: action.all_ok },
+        comments: [],
       }
+
+    case 'START_RERUN': {
+      if (state.status !== 'action_review') return state
+      const target = state.run.steps.find((s) => s.stepId === action.fromStepId)
+      if (!target) return state
+      // 必须截断：WS_ACT_STEP_START 按 stepId 去重，留着旧条目会静默吞掉重跑事件
+      return {
+        status: 'acting',
+        sessionId: state.sessionId,
+        planVersion: state.planVersion,
+        plan: state.plan,
+        run: {
+          status: 'running',
+          allOk: null,
+          error: null,
+          steps: state.run.steps.filter((s) => s.index < target.index),
+        },
+      }
+    }
+
+    case 'SESSION_COMPLETED':
+      if (state.status !== 'action_review') return state
+      return { status: 'done', sessionId: state.sessionId }
 
     case 'WS_ERROR':
       if (state.status === 'acting') {

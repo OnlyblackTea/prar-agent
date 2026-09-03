@@ -139,3 +139,86 @@ describe('ActionOutputPanel', () => {
     expect(screen.getByRole('button', { name: '复制' })).toBeDefined()
   })
 })
+
+describe('ActionOutputPanel action_review controls', () => {
+  const failedStep = makeStep({ status: 'failed', failureReason: 'exit 1' })
+  const finishedRun: ActionRun = {
+    status: 'done',
+    allOk: false,
+    error: null,
+    steps: [failedStep],
+  }
+  const rerunnable = new Set(['s1'])
+
+  it('P1 renders 重跑 button when reviewable, rerunnable and run finished', () => {
+    render(
+      <ActionOutputPanel
+        run={finishedRun}
+        reviewable
+        rerunnableStepIds={rerunnable}
+        onRerun={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '重跑' })).toBeDefined()
+  })
+
+  it('P1b hides 重跑 when step is not rerunnable', () => {
+    render(
+      <ActionOutputPanel
+        run={finishedRun}
+        reviewable
+        rerunnableStepIds={new Set()}
+        onRerun={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: '重跑' })).toBeNull()
+  })
+
+  it('P1c hides 重跑 while run is still running', () => {
+    render(
+      <ActionOutputPanel
+        run={runningRun}
+        reviewable
+        rerunnableStepIds={rerunnable}
+        onRerun={vi.fn()}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: '重跑' })).toBeNull()
+  })
+
+  it('P1d clicking 重跑 calls onRerun with the step id', () => {
+    const onRerun = vi.fn()
+    render(
+      <ActionOutputPanel
+        run={finishedRun}
+        reviewable
+        rerunnableStepIds={rerunnable}
+        onRerun={onRerun}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '重跑' }))
+    expect(onRerun).toHaveBeenCalledWith('s1')
+  })
+
+  it('P2 clicking 评论 calls onComment with the step', () => {
+    const onComment = vi.fn()
+    render(
+      <ActionOutputPanel run={finishedRun} reviewable onComment={onComment} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '评论' }))
+    expect(onComment).toHaveBeenCalledWith(failedStep)
+  })
+
+  it('P2b acting run renders no review controls', () => {
+    render(<ActionOutputPanel run={finishedRun} rerunnableStepIds={rerunnable} />)
+    expect(screen.queryByRole('button', { name: '重跑' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '评论' })).toBeNull()
+  })
+
+  it('P3 highlightStepId marks the matching step card', () => {
+    const { container } = render(
+      <ActionOutputPanel run={finishedRun} highlightStepId="s1" />,
+    )
+    expect(container.querySelector('.action-step-highlight')).not.toBeNull()
+  })
+})

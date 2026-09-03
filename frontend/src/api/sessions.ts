@@ -50,3 +50,31 @@ export async function advanceToActing(sessionId: string): Promise<{ phase: strin
   }
   return res.json()
 }
+
+/** 登记局部 rerun；实际回退与重跑由 /act WS 消费 pending_rerun_from 执行（26 号契约） */
+export async function requestRerun(
+  sessionId: string,
+  stepId: string,
+): Promise<{ phase: string; rerun_from: string }> {
+  const res = await fetch(`/api/sessions/${sessionId}/rerun`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ step_id: stepId }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail ?? `requestRerun failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function completeSession(sessionId: string): Promise<SessionData> {
+  const res = await fetch(`/api/sessions/${sessionId}/complete`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.detail ?? `completeSession failed: ${res.status}`)
+  }
+  return res.json()
+}

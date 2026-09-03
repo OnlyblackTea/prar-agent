@@ -34,7 +34,8 @@ class CommentService:
         if payload.plan_version > session.current_plan_version:
             raise ValueError("invalid_plan_version")
 
-        if session.phase != "plan_review":
+        # action_review 也允许：27 号 D2 的 step 结果评论走同一张表
+        if session.phase not in ("plan_review", "action_review"):
             raise ValueError("phase_not_review")
 
         # quote sanity check：避免脏数据进库
@@ -133,6 +134,6 @@ def _extract_text(node: dict[str, Any]) -> str:
         return cast(str, node["text"])
     parts = [
         node.get(k, "")
-        for k in ("question", "term", "definition", "description")
+        for k in ("title", "question", "term", "definition", "description")
     ]
     return " ".join(p for p in parts if p)

@@ -183,10 +183,12 @@ class SessionService:
         """编排：拉评论 → 调 Merger → 落新 plan version → 标 resolved。
 
         返回 (new_plan, merger_result, new_plan_version)。
-        全 reject 时不落新版本，返回原 plan 与当前 version。
+        全 reject 时不落新版本，返回原 plan 与当前 version，phase 原地不动。
+        从 action_review 触发（27 号 D4）且确有 accept 时，phase 两跳到
+        plan_review —— TRANSITIONS 不含 ACTION_REVIEW → PLAN_REVIEW 直达。
         """
         s = await self.get(session_id)
-        if s.phase != "plan_review":
+        if s.phase not in (Phase.PLAN_REVIEW.value, Phase.ACTION_REVIEW.value):
             raise ValueError("phase_not_review")
 
         current_version = s.current_plan_version
@@ -227,6 +229,12 @@ class SessionService:
             )
 
         new_version = current_version + 1
+        if s.phase == Phase.ACTION_REVIEW.value:
+            # 两跳必须在这里：全 reject 已提前返回，不会把 phase 拨到 planning 卡死
+            sid = str(session_id)
+            transition(Phase.ACTION_REVIEW, Phase.PLANNING, session_id=sid)
+            transition(Phase.PLANNING, Phase.PLAN_REVIEW, session_id=sid)
+            s.phase = Phase.PLAN_REVIEW.value
         new_plan = models.Plan(
             session_id=session_id,
             version=new_version,

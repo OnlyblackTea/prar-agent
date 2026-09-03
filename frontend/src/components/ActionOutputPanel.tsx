@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ActionRun, ActionStep } from '@/state/sessionReducer'
 
-interface ActionOutputPanelProps {
+export interface ActionOutputPanelProps {
   run: ActionRun
+  /** 仅 action_review 态传 true：执行中不给出重跑/评论入口 */
+  reviewable?: boolean
+  /** plan.nodes 里 rerunnable === true 的 step_id 集合 */
+  rerunnableStepIds?: ReadonlySet<string>
+  onRerun?: (stepId: string) => void
+  onComment?: (step: ActionStep) => void
+  /** 评论列表点击跳转时高亮的 step */
+  highlightStepId?: string | null
 }
 
 function headerStatus(run: ActionRun): string {
@@ -17,7 +25,16 @@ function stepBadge(step: ActionStep): string {
   return '执行中'
 }
 
-function StepCard({ step }: { step: ActionStep }) {
+interface StepCardProps {
+  step: ActionStep
+  canRerun: boolean
+  canComment: boolean
+  highlighted: boolean
+  onRerun?: (stepId: string) => void
+  onComment?: (step: ActionStep) => void
+}
+
+function StepCard({ step, canRerun, canComment, highlighted, onRerun, onComment }: StepCardProps) {
   const [copied, setCopied] = useState(false)
   const timerRef = useRef<number | null>(null)
   useEffect(
@@ -43,8 +60,16 @@ function StepCard({ step }: { step: ActionStep }) {
       })
   }
 
+  const className = [
+    'action-step',
+    `action-step-${step.status}`,
+    highlighted ? 'action-step-highlight' : null,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <div className={`action-step action-step-${step.status}`}>
+    <div className={className} data-step-id={step.stepId}>
       <div className="action-step-header">
         <span className="action-step-index">#{step.index}</span>
         <span className="action-step-title">{step.title}</span>
@@ -54,6 +79,24 @@ function StepCard({ step }: { step: ActionStep }) {
         <button type="button" className="action-copy" onClick={handleCopy}>
           {copied ? '已复制' : '复制'}
         </button>
+        {canComment && (
+          <button
+            type="button"
+            className="action-comment-btn"
+            onClick={() => onComment?.(step)}
+          >
+            评论
+          </button>
+        )}
+        {canRerun && (
+          <button
+            type="button"
+            className="action-rerun-btn"
+            onClick={() => onRerun?.(step.stepId)}
+          >
+            重跑
+          </button>
+        )}
       </div>
       {Object.keys(step.toolArgs).length > 0 && (
         <pre className="step-args">{JSON.stringify(step.toolArgs, null, 2)}</pre>
@@ -93,13 +136,24 @@ function StepCard({ step }: { step: ActionStep }) {
   )
 }
 
-export function ActionOutputPanel({ run }: ActionOutputPanelProps) {
+export function ActionOutputPanel({
+  run,
+  reviewable = false,
+  rerunnableStepIds,
+  onRerun,
+  onComment,
+  highlightStepId = null,
+}: ActionOutputPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (run.status === 'running' && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [run.steps, run.status])
+
+  const settled = run.status !== 'running'
+  const canComment = reviewable && settled && onComment !== undefined
+  const canRerun = reviewable && settled && onRerun !== undefined
 
   return (
     <section className="action-panel">
@@ -110,10 +164,18 @@ export function ActionOutputPanel({ run }: ActionOutputPanelProps) {
       {run.error !== null && <div className="action-error-banner">{run.error}</div>}
       <div className="action-step-list" ref={scrollRef}>
         {run.steps.map((s) => (
-          <StepCard key={s.stepId} step={s} />
+          <StepCard
+            key={s.stepId}
+            step={s}
+            canComment={canComment}
+            canRerun={canRerun && (rerunnableStepIds?.has(s.stepId) ?? false)}
+            highlighted={highlightStepId === s.stepId}
+            onRerun={onRerun}
+            onComment={onComment}
+          />
         ))}
       </div>
-      {run.status !== 'running' && (
+      {settled && (
         <p className="action-summary">
           共 {run.steps.length} 步 ·{' '}
           {run.status === 'failed' ? '执行中断' : run.allOk ? '全部成功' : '部分失败'}

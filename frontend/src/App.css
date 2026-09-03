@@ -992,3 +992,85 @@ main {
   font-size: 0.85rem;
   color: #374151;
 }
+
+/* ===== M4-27 Action Review UI ===== */
+
+.action-comment-btn,
+.action-rerun-btn {
+  padding: 0.25rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.action-comment-btn:hover,
+.action-rerun-btn:hover {
+  background: #f3f4f6;
+}
+
+.action-rerun-btn {
+  border-color: #f59e0b;
+  color: #92400e;
+}
+
+.action-rerun-btn:hover {
+  background: #fffbeb;
+}
+
+.action-step-highlight {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+/* rerun / complete / step 评论失败：只落局部文案，state 留在 action_review 可重试 */
+.action-local-error {
+  margin: 1rem 0 0;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 0.85rem;
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+}
+
+.complete-button {
+  background: #4f46e5;
+}
+
+.complete-button:hover:not(:disabled) {
+  background: #4338ca;
+}
+
+.done-banner {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  background: #f0fdf4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.done-banner p {
+  margin: 0;
+  color: #166534;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.done-banner code {
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  color: #15803d;
+}
+
+.done-banner .action-button {
+  padding: 0.55rem 1.4rem;
+}

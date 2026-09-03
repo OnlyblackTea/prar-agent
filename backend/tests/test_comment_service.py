@@ -166,6 +166,47 @@ class TestCommentServiceCreate:
         db.refresh.assert_called_once()
         assert result is not None
 
+    async def test_action_review_allows_step_comment(self) -> None:
+        """M4-27 D2：action_review 下对 step 结果评论，quote = step title。"""
+        db = AsyncMock()
+        session = make_session(phase="action_review")
+        db.get.return_value = session
+
+        plan = MagicMock(spec=Plan)
+        plan.document = {
+            "nodes": [
+                {
+                    "type": "step",
+                    "id": "step_000",
+                    "title": "构建镜像",
+                    "description": "docker build",
+                    "tool": "shell",
+                    "tool_args": {},
+                    "rerunnable": True,
+                },
+            ],
+        }
+
+        async def mock_get_plan(*args: Any, **kwargs: Any) -> MagicMock:
+            return plan
+
+        svc = CommentService(db)
+        svc._get_plan = mock_get_plan  # type: ignore[method-assign]
+
+        result = await svc.create(
+            session_id=session.id,
+            payload=CommentCreate(
+                anchor_id="step:step_000",
+                plan_version=1,
+                quote="构建镜像",
+                quote_context="exit 1",
+                body="先修 Dockerfile 再重跑",
+            ),
+        )
+
+        db.add.assert_called_once()
+        assert result is not None
+
 
 class TestCommentServiceList:
     async def test_list_by_version(self) -> None:
@@ -224,6 +265,23 @@ class TestQuoteInPlan:
         # joined by \n
         assert _quote_in_plan("one\nline two", doc) is True
 
+    def test_quote_found_step_title(self) -> None:
+        """M4-27 D2：step title 是 plan 可见内容，可作为 quote。"""
+        doc = {
+            "nodes": [
+                {
+                    "type": "step",
+                    "id": "step_000",
+                    "title": "构建镜像",
+                    "description": "docker build -t app .",
+                    "tool": "shell",
+                    "tool_args": {},
+                    "rerunnable": True,
+                },
+            ],
+        }
+        assert _quote_in_plan("构建镜像", doc) is True
+
 
 class TestExtractText:
     def test_text_field(self) -> None:
@@ -234,3 +292,10 @@ class TestExtractText:
 
     def test_glossary_fields(self) -> None:
         assert _extract_text({"term": "CPU", "definition": "中央处理器"}) == "CPU 中央处理器"
+
+    def test_step_fields(self) -> None:
+        """M4-27 D2：title 参与抽取，排在 description 之前。"""
+        assert (
+            _extract_text({"title": "构建镜像", "description": "docker build"})
+            == "构建镜像 docker build"
+        )

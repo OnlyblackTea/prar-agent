@@ -219,3 +219,51 @@ async def test_merge_fabricated_comment_id_is_noop(db: AsyncSession) -> None:
 
     assert version == 2
     assert c1.resolved is True
+
+
+async def test_merge_from_action_review_goes_to_plan_review(
+    db: AsyncSession,
+) -> None:
+    """M4-27 D4 MG1：action_review 改 plan → 两跳落 plan_review。"""
+    session, (c1,) = await _seed(db, phase="action_review", n_comments=1)
+    result = MergerResult(
+        actions=[
+            MergerAction(
+                comment_id=c1.id,
+                decision="accept",
+                reason="ok",
+                patch=_patch_replace(1, "revised text"),
+            ),
+        ],
+        overall_comment="",
+    )
+    svc = SessionService(db)
+    new_plan, _, version = await svc.merge_plan(
+        session_id=session.id, router=_mock_router(result),
+    )
+
+    assert version == 2
+    assert session.current_plan_version == 2
+    assert session.phase == "plan_review"
+    assert c1.resolved is True
+    assert cast(ParagraphNode, new_plan.nodes[1]).text == "revised text"
+
+
+async def test_merge_from_action_review_all_reject_keeps_phase(
+    db: AsyncSession,
+) -> None:
+    """M4-27 D4 MG2：全 reject 时两跳不得触发，phase 与版本原地不动。"""
+    session, (c1,) = await _seed(db, phase="action_review", n_comments=1)
+    result = MergerResult(
+        actions=[MergerAction(comment_id=c1.id, decision="reject", reason="no")],
+    )
+    svc = SessionService(db)
+    plan, _, version = await svc.merge_plan(
+        session_id=session.id, router=_mock_router(result),
+    )
+
+    assert version == 1
+    assert session.current_plan_version == 1
+    assert session.phase == "action_review"
+    assert c1.resolved is False
+    assert cast(ParagraphNode, plan.nodes[1]).text == "original text"

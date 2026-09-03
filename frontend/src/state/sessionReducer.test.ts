@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { sessionReducer, allBlockingAnswered } from './sessionReducer'
-import type { CommentResponse } from '@/types/shared'
+import { sessionReducer, allBlockingAnswered, type SessionState } from './sessionReducer'
+import type { CommentResponse, PlanDocument } from '@/types/shared'
 
 const emptyComments: CommentResponse[] = []
 
@@ -403,24 +403,26 @@ describe('sessionReducer acting phase', () => {
     })
   })
 
-  it('WS_ACT_PLAN_DONE marks run done with allOk', () => {
+  it('WS_ACT_PLAN_DONE transitions acting → action_review with allOk', () => {
     const state = sessionReducer(actingWithOneStep(), {
       type: 'WS_ACT_PLAN_DONE',
       total_steps: 1,
       all_ok: true,
     })
-    if (state.status !== 'acting') throw new Error('expected acting')
+    if (state.status !== 'action_review') throw new Error('expected action_review')
     expect(state.run.status).toBe('done')
     expect(state.run.allOk).toBe(true)
+    expect(state.run.steps).toHaveLength(1)
+    expect(state.comments).toEqual([])
   })
 
-  it('WS_ACT_PLAN_DONE with all_ok false keeps done with allOk false', () => {
+  it('WS_ACT_PLAN_DONE with all_ok false keeps allOk false', () => {
     const state = sessionReducer(actingWithOneStep(), {
       type: 'WS_ACT_PLAN_DONE',
       total_steps: 1,
       all_ok: false,
     })
-    if (state.status !== 'acting') throw new Error('expected acting')
+    if (state.status !== 'action_review') throw new Error('expected action_review')
     expect(state.run.status).toBe('done')
     expect(state.run.allOk).toBe(false)
   })
@@ -442,6 +444,183 @@ describe('sessionReducer acting phase', () => {
   it('WS_ACT_* is ignored outside acting', () => {
     const state = sessionReducer(reviewState, stepStartAction)
     expect(state).toBe(reviewState)
+  })
+})
+
+describe('sessionReducer action_review phase', () => {
+  const plan: PlanDocument = {
+    title: 'T',
+    summary: 'S',
+    nodes: [
+      {
+        type: 'step',
+        id: 's1',
+        title: '构建镜像',
+        description: 'docker build',
+        tool: 'shell',
+        tool_args: {},
+        rerunnable: true,
+      },
+      {
+        type: 'step',
+        id: 's2',
+        title: '推送镜像',
+        description: 'docker push',
+        tool: 'shell',
+        tool_args: {},
+        rerunnable: true,
+      },
+    ],
+  }
+
+  // 走真实 reducer 路径造出两步执行完、第二步失败的 action_review 现场
+  const mkActionReview = (): SessionState => {
+    let s: SessionState = sessionReducer(
+      { status: 'review', sessionId: 'sid', planVersion: 1, plan, comments: [] },
+      { type: 'START_ACTING' },
+    )
+    s = sessionReducer(s, {
+      type: 'WS_ACT_STEP_START',
+      index: 0,
+      step_id: 's1',
+      title: '构建镜像',
+      tool: 'shell',
+      tool_args: {},
+    })
+    s = sessionReducer(s, {
+      type: 'WS_ACT_STEP_DONE',
+      step_id: 's1',
+      ok: true,
+      attempts: 1,
+      output: 'built',
+      artifacts: [],
+      thoughts: [],
+      failure_reason: null,
+      git_commit: 'c1',
+    })
+    s = sessionReducer(s, {
+      type: 'WS_ACT_STEP_START',
+      index: 1,
+      step_id: 's2',
+      title: '推送镜像',
+      tool: 'shell',
+      tool_args: {},
+    })
+    s = sessionReducer(s, {
+      type: 'WS_ACT_STEP_DONE',
+      step_id: 's2',
+      ok: false,
+      attempts: 1,
+      output: 'denied',
+      artifacts: [],
+      thoughts: [],
+      failure_reason: 'exit 1',
+      git_commit: null,
+    })
+    return sessionReducer(s, {
+      type: 'WS_ACT_PLAN_DONE',
+      total_steps: 2,
+      all_ok: false,
+    })
+  }
+
+  const comment: CommentResponse = {
+    id: 'c1',
+    session_id: 'sid',
+    plan_version: 1,
+    anchor_id: 'step:s2',
+    quote: '推送镜像',
+    quote_context: 'exit 1',
+    body: '先登录 registry',
+    resolved: false,
+    created_at: '2025-01-01T00:00:00Z',
+  }
+
+  it('R2 START_RERUN truncates target step and later ones, back to acting', () => {
+    const state = sessionReducer(mkActionReview(), {
+      type: 'START_RERUN',
+      fromStepId: 's2',
+    })
+    if (state.status !== 'acting') throw new Error('expected acting')
+    expect(state.planVersion).toBe(1)
+    expect(state.plan).toEqual(plan)
+    expect(state.run.status).toBe('running')
+    expect(state.run.allOk).toBeNull()
+    expect(state.run.error).toBeNull()
+    expect(state.run.steps.map((s) => s.stepId)).toEqual(['s1'])
+  })
+
+  it('R2b START_RERUN on the first step clears all steps', () => {
+    const state = sessionReducer(mkActionReview(), {
+      type: 'START_RERUN',
+      fromStepId: 's1',
+    })
+    if (state.status !== 'acting') throw new Error('expected acting')
+    expect(state.run.steps).toEqual([])
+  })
+
+  it('R3 LOAD_COMMENTS and ADD_COMMENT work in action_review', () => {
+    const loaded = sessionReducer(mkActionReview(), {
+      type: 'LOAD_COMMENTS',
+      comments: [comment],
+    })
+    if (loaded.status !== 'action_review') throw new Error('expected action_review')
+    expect(loaded.comments).toEqual([comment])
+
+    const added = sessionReducer(mkActionReview(), {
+      type: 'ADD_COMMENT',
+      comment,
+    })
+    if (added.status !== 'action_review') throw new Error('expected action_review')
+    expect(added.comments).toEqual([comment])
+  })
+
+  it('R4 SESSION_COMPLETED transitions action_review → done', () => {
+    const state = sessionReducer(mkActionReview(), { type: 'SESSION_COMPLETED' })
+    expect(state).toEqual({ status: 'done', sessionId: 'sid' })
+  })
+
+  it('R5 START_RERUN is ignored outside action_review', () => {
+    const review: SessionState = {
+      status: 'review',
+      sessionId: 'sid',
+      planVersion: 1,
+      plan,
+      comments: [],
+    }
+    expect(sessionReducer(review, { type: 'START_RERUN', fromStepId: 's1' })).toBe(review)
+  })
+
+  it('R5b START_RERUN with unknown step_id leaves state untouched', () => {
+    const before = mkActionReview()
+    expect(sessionReducer(before, { type: 'START_RERUN', fromStepId: 'ghost' })).toBe(before)
+  })
+
+  it('R6 WS_ERROR in action_review falls through to error status', () => {
+    const state = sessionReducer(mkActionReview(), {
+      type: 'WS_ERROR',
+      code: 'internal',
+      message: 'boom',
+    })
+    expect(state).toEqual({ status: 'error', code: 'internal', message: 'boom' })
+  })
+
+  it('R7 MERGE_COMPLETED in action_review lands back in review', () => {
+    const newPlan: PlanDocument = { title: 'T2', summary: 'S2', nodes: [] }
+    const state = sessionReducer(mkActionReview(), {
+      type: 'MERGE_COMPLETED',
+      planVersion: 2,
+      plan: newPlan,
+    })
+    expect(state.status).toBe('review')
+    if (state.status !== 'review') throw new Error('expected review')
+    expect(state.planVersion).toBe(2)
+    expect(state.plan).toEqual(newPlan)
+    expect(state.comments).toEqual([])
+  })
+
+  it('RESET returns action_review to idle', () => {
+    expect(sessionReducer(mkActionReview(), { type: 'RESET' })).toEqual({ status: 'idle' })
   })
 })
 
