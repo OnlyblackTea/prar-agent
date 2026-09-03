@@ -40,7 +40,9 @@ src-tauri/target/
 *.sqlite3
 *.db
 data/local/
-sandbox/runs/
+# **/ 前缀必需：_DEFAULT_SANDBOX_BASE 是相对路径，产物落在进程 CWD 下（backend/sandbox/runs/），
+# 而含斜杠的 gitignore 模式会锚定到仓库根，裸 sandbox/runs/ 匹配不到它。
+**/sandbox/runs/
 
 # Pgvector dumps
 *.sql.gz
