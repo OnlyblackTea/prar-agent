@@ -124,7 +124,11 @@ export default function App() {
     [displayPlan],
   )
 
-  // 进入 review / action_review 或 planVersion 变化（merge 落 v{N+1}）时拉评论
+  // 进入 review / action_review 或 planVersion 变化（merge 落 v{N+1}）时拉评论。
+  // reviewPlanVersion 是 state.planVersion 的有意代理：非 review 态恒为 0，
+  // 避免 planVersion 在无关状态迁移上触发重拉（设计 27.2 §1.2）。
+  // state.sessionId 不入依赖：SessionState 的 idle/error 分支没有该属性，依赖数组处无法窄化；
+  // 且 reducer 里 sessionId 只随 START_SESSION 变更（同时改 status），status 已是依赖（设计 27.2 §8）
   useEffect(() => {
     if (state.status !== 'review' && state.status !== 'action_review') return
     listComments(state.sessionId, state.planVersion).then((comments) => {
@@ -132,9 +136,10 @@ export default function App() {
     }).catch(() => {
       // no comments yet — fine
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reviewPlanVersion 代理 planVersion；sessionId 只随 status 变，见上
   }, [state.status, reviewPlanVersion])
 
-  // 进入 review 或版本变化（merge 落 v{N+1}）时刷新版本列表
+  // 进入 review 或版本变化（merge 落 v{N+1}）时刷新版本列表。sessionId / reviewPlanVersion 理由同上
   useEffect(() => {
     if (state.status !== 'review') return
     listPlans(state.sessionId)
@@ -142,11 +147,14 @@ export default function App() {
       .catch(() => {
         // 版本列表拉取失败不阻塞主流程，选择器不显示即可
       })
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sessionId 只随 status 变，见上
   }, [state.status, reviewPlanVersion])
 
   // 回放未在 editor 中应用的 anchor mark（页面刷新后从 DB 拉回的评论需要重新打 mark）；
   // M2-14：精确匹配升级 fuzzy 回源，置信度 < 0.7 的评论进悬空集合（设计 §3.3）
   // step 评论不参与：StepNode 是 atom 节点，title 不在文本流里，锚点在 StepCard（设计 27 D2）
+  // commentsLen 是 state.comments 的有意代理：按数组 identity 触发会让任何产出新 comments
+  // 数组的 dispatch（内容未变也算）都重跑一轮全文档扫描 + ProseMirror 写入（设计 27.2 §1.2）
   const commentsLen = state.status === 'review' ? state.comments.length : 0
   useEffect(() => {
     if (state.status !== 'review' || !editorRef.current) return
@@ -175,6 +183,7 @@ export default function App() {
       }
     }
     setDangling(nextDangling)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- commentsLen 代理 state.comments，见上
   }, [state.status, commentsLen, viewingVersion])
 
   const connectAct = useCallback((sid: string) => {
