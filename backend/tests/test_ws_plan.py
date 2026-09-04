@@ -1,7 +1,7 @@
 """WebSocket endpoint 集成测试（mock PlanEngine + adapter resolve）。"""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -226,8 +226,7 @@ def test_ws_injects_recalled_memories_into_generate(
                 except Exception:
                     break
 
-    mock_recall.assert_awaited_once()
-    assert mock_recall.await_args.kwargs["query"] == "build a web app"
+    mock_recall.assert_awaited_once_with(ANY, query="build a web app")
     assert mock_engine.generate.await_count == 1
     assert mock_engine.generate.await_args.kwargs["ltm_recall"] == lines
 

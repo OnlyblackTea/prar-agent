@@ -1,7 +1,7 @@
 """M4-23 SessionService.complete 服务层测试（真 DB + fake LongTermMemory，rollback 隔离）。"""
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -11,6 +11,7 @@ from app.core.embedding import EmbeddingTransportError
 from app.core.plan_schemas import HeadingNode, ParagraphNode, PlanDocument
 from app.core.state_machine import InvalidTransitionError
 from app.db import models
+from app.memory.long_term import LongTermMemory
 from app.services.session_service import SessionNotFoundError, SessionService
 
 _PLAN_V1 = PlanDocument(
@@ -96,7 +97,7 @@ async def test_complete_success(db: AsyncSession) -> None:
     fake = _FakeLongTerm()
     svc = SessionService(db)
 
-    s = await svc.complete(session_id=session.id, long_term=fake)
+    s = await svc.complete(session_id=session.id, long_term=cast(LongTermMemory, fake))
 
     assert s.phase == "done"
     assert len(fake.calls) == 1
@@ -122,7 +123,7 @@ async def test_complete_parses_last_run(db: AsyncSession) -> None:
     )
     fake = _FakeLongTerm()
 
-    await SessionService(db).complete(session_id=session.id, long_term=fake)
+    await SessionService(db).complete(session_id=session.id, long_term=cast(LongTermMemory, fake))
 
     run = fake.calls[0]["run"]
     assert run is not None
@@ -137,7 +138,7 @@ async def test_complete_tolerates_garbage_last_run(db: AsyncSession) -> None:
     session = await _seed(db, last_run={"not": "a valid summary"})
     fake = _FakeLongTerm()
 
-    await SessionService(db).complete(session_id=session.id, long_term=fake)
+    await SessionService(db).complete(session_id=session.id, long_term=cast(LongTermMemory, fake))
 
     assert fake.calls[0]["run"] is None
 
@@ -150,7 +151,9 @@ async def test_complete_illegal_phase_acting(db: AsyncSession) -> None:
     fake = _FakeLongTerm()
 
     with pytest.raises(InvalidTransitionError):
-        await SessionService(db).complete(session_id=session.id, long_term=fake)
+        await SessionService(db).complete(
+            session_id=session.id, long_term=cast(LongTermMemory, fake),
+        )
 
     assert fake.calls == []
 
@@ -160,7 +163,9 @@ async def test_complete_twice_rejected(db: AsyncSession) -> None:
     fake = _FakeLongTerm()
 
     with pytest.raises(InvalidTransitionError):
-        await SessionService(db).complete(session_id=session.id, long_term=fake)
+        await SessionService(db).complete(
+            session_id=session.id, long_term=cast(LongTermMemory, fake),
+        )
 
     assert fake.calls == []
 
@@ -171,7 +176,7 @@ async def test_complete_twice_rejected(db: AsyncSession) -> None:
 async def test_complete_session_not_found(db: AsyncSession) -> None:
     with pytest.raises(SessionNotFoundError):
         await SessionService(db).complete(
-            session_id=uuid4(), long_term=_FakeLongTerm(),
+            session_id=uuid4(), long_term=cast(LongTermMemory, _FakeLongTerm()),
         )
 
 
@@ -184,7 +189,9 @@ async def test_complete_embedding_error_no_transition(db: AsyncSession) -> None:
     fake.error = EmbeddingTransportError("boom", model_id="m")
 
     with pytest.raises(EmbeddingTransportError):
-        await SessionService(db).complete(session_id=session.id, long_term=fake)
+        await SessionService(db).complete(
+            session_id=session.id, long_term=cast(LongTermMemory, fake),
+        )
 
     await db.refresh(session)
     assert session.phase == "action_review"

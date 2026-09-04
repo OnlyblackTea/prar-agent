@@ -1,7 +1,7 @@
 """M4-24 Consolidator 单元测试 — 全 mock（db/store/router/embedding 均替身）。"""
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -76,7 +76,11 @@ def make_structured_response(items: list[Any]) -> Any:
     )
 
 
-def make_item(kind: str = "semantic", content: str = "k", importance: float = 0.5) -> Any:
+def make_item(
+    kind: Literal["semantic", "procedural"] = "semantic",
+    content: str = "k",
+    importance: float = 0.5,
+) -> Any:
     from app.memory.consolidator import DistilledMemory
 
     return DistilledMemory(kind=kind, content=content, importance=importance)

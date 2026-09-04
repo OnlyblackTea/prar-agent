@@ -2,10 +2,12 @@
 
 import hashlib
 from collections.abc import AsyncIterator
+from typing import cast
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.embedding import EmbeddingService
 from app.db import models
 from app.memory.recall import LtmRecall
 from app.services.memory_service import MemoryService
@@ -39,7 +41,7 @@ async def db() -> AsyncIterator[AsyncSession]:
 
 
 def _svc(db: AsyncSession) -> MemoryService:
-    return MemoryService(db, _FakeEmbedding())
+    return MemoryService(db, cast(EmbeddingService, _FakeEmbedding()))
 
 
 # ===== S1: 命中间查询语义的行 + access 记账 =====

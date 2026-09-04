@@ -2,13 +2,14 @@
 
 import hashlib
 from collections.abc import AsyncIterator
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple, cast
 from uuid import UUID
 
 import pytest
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.embedding import EmbeddingService
 from app.db import models
 from app.llm.router import LLMTransportError
 from app.services.memory_service import MemoryService
@@ -57,7 +58,11 @@ class _FakeRouter:
         )
 
 
-def make_item(kind: str, content: str, importance: float = 0.5) -> Any:
+def make_item(
+    kind: Literal["semantic", "procedural"],
+    content: str,
+    importance: float = 0.5,
+) -> Any:
     from app.memory.consolidator import DistilledMemory
 
     return DistilledMemory(kind=kind, content=content, importance=importance)
@@ -144,7 +149,7 @@ async def _seed_memory(
     content: str,
     importance: float = 0.5,
 ) -> models.Memory:
-    return await MemoryService(db, emb).store(
+    return await MemoryService(db, cast(EmbeddingService, emb)).store(
         kind=kind, content=content, importance=importance,
     )
 
@@ -158,9 +163,9 @@ async def _run(
     adapter = await resolve_default_adapter(db)
     c = Consolidator(
         db=db,
-        store=MemoryService(db, emb),
+        store=MemoryService(db, cast(EmbeddingService, emb)),
         router=router,  # type: ignore[arg-type]
-        embedding=emb,
+        embedding=cast(EmbeddingService, emb),
     )
     return await c.run_once(adapter=adapter)
 
@@ -174,8 +179,7 @@ async def _semantic_ids(db: AsyncSession) -> set[UUID]:
 
 async def _pending_episodic_ids(db: AsyncSession, emb: _FakeEmbedding) -> set[UUID]:
     """走产品的 list_unconsolidated —— 断言真批次入口，而非本文件抄一份等价 SQL。"""
-    # 伪嵌入替身不是 EmbeddingService 子类；同 _run 里对 router 的处理方式
-    store = MemoryService(db, emb)  # type: ignore[arg-type]
+    store = MemoryService(db, cast(EmbeddingService, emb))
     return {m.id for m in await store.list_unconsolidated(limit=20)}
 
 
@@ -309,9 +313,9 @@ async def test_no_default_adapter_raises(db: AsyncSession) -> None:
 
     c = Consolidator(
         db=db,
-        store=MemoryService(db, emb),
+        store=MemoryService(db, cast(EmbeddingService, emb)),
         router=_FakeRouter(),  # type: ignore[arg-type]
-        embedding=emb,
+        embedding=cast(EmbeddingService, emb),
     )
     with pytest.raises(NoDefaultAdapterError):
         await c.run_once(adapter=None)
@@ -331,9 +335,9 @@ async def test_llm_error_keeps_batch_unconsumed(db: AsyncSession) -> None:
 
     c = Consolidator(
         db=db,
-        store=MemoryService(db, emb),
+        store=MemoryService(db, cast(EmbeddingService, emb)),
         router=router,  # type: ignore[arg-type]
-        embedding=emb,
+        embedding=cast(EmbeddingService, emb),
     )
     adapter = await resolve_default_adapter(db)
     with pytest.raises(LLMTransportError):

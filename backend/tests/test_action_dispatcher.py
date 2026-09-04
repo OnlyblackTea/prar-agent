@@ -670,8 +670,7 @@ async def test_start_from_triggers_rollback_with_args(
         await disp.execute_plan(
             plan, session_id=session_id, plan_version=3, start_from="step_002",
         )
-    rollback.assert_awaited_once()
-    assert rollback.await_args.kwargs == {"plan_version": 3, "step_id": "step_002"}
+    rollback.assert_awaited_once_with(plan_version=3, step_id="step_002")
 
 
 async def test_existing_git_skips_init(
