@@ -24,3 +24,13 @@
 | **用户** | 通过批注/答题/批准按钮控制全流程 |
 
 不依赖任何模型微调，纯框架代码 + 结构化输出实现。
+
+---
+
+## License
+
+Copyright (C) 2026 OnlyblackTea
+
+本引擎采用 **GNU General Public License v3.0（GPL-3.0-or-later）** 开源，完整条款见 [`LICENSE`](LICENSE)。
+
+> GPL-3.0 是强 copyleft：任何对本引擎的修改与再分发都必须以 GPL-3.0 同样开源，确保社区对引擎的改进持续回流。
