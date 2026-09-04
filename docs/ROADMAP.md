@@ -12,7 +12,7 @@
 
 ---
 
-## M1 — Skeleton + Plan 生成（Week 1）
+## M1 — Skeleton + Plan 生成（Week 1，已完成 ✅）
 
 **目标**：UI 输入 init request → 流式看到完整可读 plan 文档（含决策题可点 + 自审过的内容）
 
@@ -38,7 +38,7 @@
 
 ---
 
-## M2 — Plan Review 循环（Week 2）
+## M2 — Plan Review 循环（Week 2，已完成 ✅）
 
 **目标**：用户评论 → 真正改 plan → 看到 v1 → v2 diff
 
@@ -53,7 +53,7 @@
 
 ---
 
-## M3 — Action + Tool 框架（Week 3）
+## M3 — Action + Tool 框架（Week 3，已完成 ✅）
 
 **目标**：plan 通过后能跑出结果，每步落 git
 
@@ -71,7 +71,7 @@
 
 ---
 
-## M4 — 长期记忆 + 局部回滚（Week 4）
+## M4 — 长期记忆 + 局部回滚（Week 4，已完成 ✅）
 
 **目标**：第二次同类 session 看到记忆生效；失败可局部 rerun
 
